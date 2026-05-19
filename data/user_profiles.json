@@ -17,6 +17,7 @@
       "settings-ai-ocr",
       "settings-family-budget",
       "settings-users",
+      "settings-smtp",
       "settings-backup",
       "settings-bank"
     ]

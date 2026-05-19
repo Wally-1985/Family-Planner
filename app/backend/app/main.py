@@ -441,8 +441,22 @@ def get_user_profiles() -> list[UserProfile]:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not USER_PROFILES_PATH.exists():
         USER_PROFILES_PATH.write_text(json.dumps(DEFAULT_USER_PROFILES, indent=2))
-    profiles = json.loads(USER_PROFILES_PATH.read_text() or "[]")
-    return [UserProfile(**profile) for profile in profiles]
+    raw_profiles = json.loads(USER_PROFILES_PATH.read_text() or "[]")
+    changed = False
+    for profile in raw_profiles:
+        profile.setdefault("pin", "")
+        profile.setdefault("email", "")
+        if profile.get("role") not in {"Administrator", "User"}:
+            profile["role"] = "User"
+            changed = True
+        permissions = profile.setdefault("permissions", [])
+        if profile.get("role") == "Administrator" and "settings-users" in permissions and "settings-smtp" not in permissions:
+            insert_at = permissions.index("settings-users") + 1
+            permissions.insert(insert_at, "settings-smtp")
+            changed = True
+    if changed:
+        USER_PROFILES_PATH.write_text(json.dumps(raw_profiles, indent=2))
+    return [UserProfile(**profile) for profile in raw_profiles]
 
 
 def save_user_profiles(profiles: list[UserProfile]) -> list[UserProfile]:
