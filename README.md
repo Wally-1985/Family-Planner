@@ -19,6 +19,8 @@ Local-first finance management web app for personal/family finance workflows, st
   - SharePoint Graph connector settings
   - AI/OCR settings and field definitions
   - Family Budget categories
+  - User Profiles for sidebar/page visibility permissions
+  - Backup & Restore zip download/upload
   - future bank account connector placeholder
 - FastAPI backend with local SQLite/JSON data storage
 - Docker Compose deployment for a permanent local server/computer
@@ -80,5 +82,6 @@ See [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) for the complete migration 
 
 - Do not commit `.env`, SQLite databases, uploads, backups, or real Microsoft/AI/bank credentials.
 - Financial/tax documents are sensitive. Keep the server private unless HTTPS and authentication are added.
+- User Profiles currently control app/sidebar visibility only. They are not a substitute for server-side authentication and API authorization.
 - Settings UI is for connector configuration, but credentials/tokens belong server-side.
 - See [docs/SHAREPOINT_GRAPH_SETUP.md](docs/SHAREPOINT_GRAPH_SETUP.md) for Microsoft Graph setup.

@@ -43,7 +43,40 @@ import {
 import './styles.css';
 
 type Theme = 'light' | 'dark' | 'system';
-type Page = 'dashboard' | 'receipts-inbox' | 'processed-receipts' | 'family-dashboard' | 'family-projections' | 'family-actuals' | 'business' | 'settings-sharepoint' | 'settings-ai-ocr' | 'settings-family-budget' | 'settings-backup' | 'settings-bank';
+type Page = 'dashboard' | 'receipts-inbox' | 'processed-receipts' | 'family-dashboard' | 'family-projections' | 'family-actuals' | 'business' | 'settings-sharepoint' | 'settings-ai-ocr' | 'settings-family-budget' | 'settings-users' | 'settings-backup' | 'settings-bank';
+
+type UserProfile = {
+  id: string;
+  name: string;
+  role: string;
+  permissions: Page[];
+};
+
+const pageLabels: Record<Page, string> = {
+  dashboard: 'Finance dashboard',
+  'receipts-inbox': 'Receipts Inbox',
+  'processed-receipts': 'Processed Receipts',
+  'family-dashboard': 'Family Budget',
+  'family-projections': 'Projections',
+  'family-actuals': 'Actual Costs',
+  business: 'Business budgets',
+  'settings-sharepoint': 'SharePoint Library Settings',
+  'settings-ai-ocr': 'AI + OCR',
+  'settings-family-budget': 'Family Budget Settings',
+  'settings-users': 'User Profiles',
+  'settings-backup': 'Backup & Restore',
+  'settings-bank': 'Bank Accounts'
+};
+
+const allPermissionPages = Object.keys(pageLabels) as Page[];
+
+const defaultUserProfiles: UserProfile[] = [
+  { id: 'owner', name: 'Owner', role: 'Administrator', permissions: allPermissionPages },
+  { id: 'family', name: 'Family', role: 'Family budget', permissions: ['dashboard', 'family-dashboard', 'family-projections', 'family-actuals'] }
+];
+
+const firstAllowedPage = (profile: UserProfile | undefined): Page => profile?.permissions?.[0] || 'dashboard';
+const canAccessPage = (profile: UserProfile | undefined, page: Page) => !profile || profile.permissions.includes(page);
 
 type ConnectorStatus = 'not-connected' | 'ready' | 'needs-review';
 
@@ -172,8 +205,15 @@ function readSettings(): SettingsState {
 function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [settings, setSettings] = useState<SettingsState>(readSettings);
+  const [userProfiles, setUserProfiles] = useState<UserProfile[]>(defaultUserProfiles);
+  const [activeProfileId, setActiveProfileId] = useState(() => localStorage.getItem('finances.activeProfile') || 'owner');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
+  const activeProfile = userProfiles.find((profile) => profile.id === activeProfileId) || userProfiles[0];
+
+  const navigateToPage = (nextPage: Page) => {
+    if (canAccessPage(activeProfile, nextPage)) setPage(nextPage);
+  };
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -206,13 +246,37 @@ function App() {
     localStorage.setItem('finances.settings', JSON.stringify(settings));
   }, [settings, effectiveTheme]);
 
+  useEffect(() => {
+    localStorage.setItem('finances.activeProfile', activeProfileId);
+  }, [activeProfileId]);
+
+  useEffect(() => {
+    const loadProfiles = async () => {
+      try {
+        const response = await fetch('/api/settings/user-profiles');
+        if (!response.ok) throw new Error('Could not load user profiles.');
+        const result = await response.json();
+        if (result.status === 'failed') throw new Error(result.message || 'Could not load user profiles.');
+        if (Array.isArray(result.profiles) && result.profiles.length) setUserProfiles(result.profiles);
+      } catch {
+        setUserProfiles(defaultUserProfiles);
+      }
+    };
+    void loadProfiles();
+  }, []);
+
+  useEffect(() => {
+    if (!activeProfile) return;
+    if (!canAccessPage(activeProfile, page)) setPage(firstAllowedPage(activeProfile));
+  }, [activeProfile, page]);
+
   const updateSettings = (patch: Partial<SettingsState>) => setSettings((current) => ({ ...current, ...patch }));
 
   return (
     <div className={sidebarCollapsed ? 'app-shell sidebar-collapsed' : 'app-shell'} style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}>
-      <Sidebar current={page} onNavigate={setPage} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} onResizeStart={startSidebarResize} />
+      <Sidebar current={page} onNavigate={navigateToPage} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} onResizeStart={startSidebarResize} activeProfile={activeProfile} />
       <main className="main-panel">
-        <TopBar page={page} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed((value) => !value)} />
+        <TopBar page={page} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed((value) => !value)} userProfiles={userProfiles} activeProfileId={activeProfileId} onProfileChange={setActiveProfileId} />
         {page === 'dashboard' && <Dashboard onNavigate={setPage} />}
         {page === 'receipts-inbox' && <TaxReceipts />}
         {page === 'processed-receipts' && <ProcessedReceipts />}
@@ -223,6 +287,7 @@ function App() {
         {page === 'settings-sharepoint' && <SettingsPage section="sharepoint" settings={settings} update={updateSettings} />}
         {page === 'settings-ai-ocr' && <SettingsPage section="ai-ocr" settings={settings} update={updateSettings} />}
         {page === 'settings-family-budget' && <SettingsPage section="family-budget" settings={settings} update={updateSettings} />}
+        {page === 'settings-users' && <SettingsPage section="users" settings={settings} update={updateSettings} userProfiles={userProfiles} setUserProfiles={setUserProfiles} activeProfileId={activeProfileId} setActiveProfileId={setActiveProfileId} />}
         {page === 'settings-backup' && <SettingsPage section="backup" settings={settings} update={updateSettings} />}
         {page === 'settings-bank' && <SettingsPage section="bank" settings={settings} update={updateSettings} />}
       </main>
@@ -235,20 +300,27 @@ function Sidebar({
   onNavigate,
   collapsed,
   onToggle,
-  onResizeStart
+  onResizeStart,
+  activeProfile
 }: {
   current: Page;
   onNavigate: (page: Page) => void;
   collapsed: boolean;
   onToggle: () => void;
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+  activeProfile?: UserProfile;
 }) {
+  const allowed = (page: Page) => canAccessPage(activeProfile, page);
   const otherItems: Array<{ id: Page; label: string; icon: React.ReactNode }> = [
     { id: 'business', label: 'Business budgets', icon: <Building2 size={18} /> }
   ];
   const taxActive = current === 'receipts-inbox' || current === 'processed-receipts';
   const familyActive = current === 'family-dashboard' || current === 'family-projections' || current === 'family-actuals';
-  const settingsActive = current === 'settings-sharepoint' || current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-backup' || current === 'settings-bank';
+  const settingsActive = current === 'settings-sharepoint' || current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-users' || current === 'settings-backup' || current === 'settings-bank';
+  const firstTaxPage = (['receipts-inbox', 'processed-receipts'] as Page[]).find(allowed);
+  const firstFamilyPage = (['family-dashboard', 'family-projections', 'family-actuals'] as Page[]).find(allowed);
+  const settingsPages: Page[] = ['settings-sharepoint', 'settings-ai-ocr', 'settings-family-budget', 'settings-users', 'settings-backup', 'settings-bank'];
+  const firstSettingsPage = settingsPages.find(allowed);
 
   return (
     <aside className="sidebar">
@@ -261,55 +333,56 @@ function Sidebar({
         </button>
       </div>
       <nav>
-        <button className={current === 'dashboard' ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate('dashboard')} title={collapsed ? 'Dashboard' : undefined}>
+        {allowed('dashboard') && <button className={current === 'dashboard' ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate('dashboard')} title={collapsed ? 'Dashboard' : undefined}>
           <Home size={18} />
           <span>Dashboard</span>
-        </button>
-        <div className={taxActive ? 'nav-group active' : 'nav-group'}>
-          <button className={taxActive ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate('receipts-inbox')} title={collapsed ? 'Tax Receipts' : undefined}>
+        </button>}
+        {(allowed('receipts-inbox') || allowed('processed-receipts')) && <div className={taxActive ? 'nav-group active' : 'nav-group'}>
+          <button className={taxActive ? 'active nav-item' : 'nav-item'} onClick={() => firstTaxPage && onNavigate(firstTaxPage)} title={collapsed ? 'Tax Receipts' : undefined}>
             <ReceiptText size={18} />
             <span>Tax Receipts</span>
           </button>
           {!collapsed && (
             <div className="nav-subitems">
-              <button className={current === 'receipts-inbox' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('receipts-inbox')}>Receipts Inbox</button>
-              <button className={current === 'processed-receipts' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('processed-receipts')}>Processed Receipts</button>
+              {allowed('receipts-inbox') && <button className={current === 'receipts-inbox' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('receipts-inbox')}>Receipts Inbox</button>}
+              {allowed('processed-receipts') && <button className={current === 'processed-receipts' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('processed-receipts')}>Processed Receipts</button>}
             </div>
           )}
-        </div>
-        <div className={familyActive ? 'nav-group active' : 'nav-group'}>
-          <button className={familyActive ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate('family-dashboard')} title={collapsed ? 'Family Budget' : undefined}>
+        </div>}
+        {(allowed('family-dashboard') || allowed('family-projections') || allowed('family-actuals')) && <div className={familyActive ? 'nav-group active' : 'nav-group'}>
+          <button className={familyActive ? 'active nav-item' : 'nav-item'} onClick={() => firstFamilyPage && onNavigate(firstFamilyPage)} title={collapsed ? 'Family Budget' : undefined}>
             <Landmark size={18} />
             <span>Family Budget</span>
           </button>
           {!collapsed && (
             <div className="nav-subitems">
-              <button className={current === 'family-projections' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('family-projections')}>Projections</button>
-              <button className={current === 'family-actuals' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('family-actuals')}>Actual Costs</button>
+              {allowed('family-projections') && <button className={current === 'family-projections' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('family-projections')}>Projections</button>}
+              {allowed('family-actuals') && <button className={current === 'family-actuals' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('family-actuals')}>Actual Costs</button>}
             </div>
           )}
-        </div>
-        {otherItems.map((item) => (
+        </div>}
+        {otherItems.filter((item) => allowed(item.id)).map((item) => (
           <button key={item.id} className={current === item.id ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate(item.id)} title={collapsed ? item.label : undefined}>
             {item.icon}
             <span>{item.label}</span>
           </button>
         ))}
-        <div className={settingsActive ? 'nav-group active' : 'nav-group'}>
-          <button className={settingsActive ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate('settings-sharepoint')} title={collapsed ? 'Settings' : undefined}>
+        {firstSettingsPage && <div className={settingsActive ? 'nav-group active' : 'nav-group'}>
+          <button className={settingsActive ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate(firstSettingsPage)} title={collapsed ? 'Settings' : undefined}>
             <Settings size={18} />
             <span>Settings</span>
           </button>
           {!collapsed && (
             <div className="nav-subitems">
-              <button className={current === 'settings-sharepoint' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-sharepoint')}>SharePoint Library Settings</button>
-              <button className={current === 'settings-ai-ocr' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-ai-ocr')}>AI + OCR</button>
-              <button className={current === 'settings-family-budget' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-family-budget')}>Family Budget</button>
-              <button className={current === 'settings-backup' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-backup')}>Backup & Restore</button>
-              <button className={current === 'settings-bank' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-bank')}>Bank Accounts</button>
+              {allowed('settings-sharepoint') && <button className={current === 'settings-sharepoint' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-sharepoint')}>SharePoint Library Settings</button>}
+              {allowed('settings-ai-ocr') && <button className={current === 'settings-ai-ocr' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-ai-ocr')}>AI + OCR</button>}
+              {allowed('settings-family-budget') && <button className={current === 'settings-family-budget' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-family-budget')}>Family Budget</button>}
+              {allowed('settings-users') && <button className={current === 'settings-users' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-users')}>User Profiles</button>}
+              {allowed('settings-backup') && <button className={current === 'settings-backup' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-backup')}>Backup & Restore</button>}
+              {allowed('settings-bank') && <button className={current === 'settings-bank' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-bank')}>Bank Accounts</button>}
             </div>
           )}
-        </div>
+        </div>}
       </nav>
       <div className="sidebar-note">
         <ShieldCheck size={18} />
@@ -320,22 +393,21 @@ function Sidebar({
   );
 }
 
-function TopBar({ page, sidebarCollapsed, onToggleSidebar }: { page: Page; sidebarCollapsed: boolean; onToggleSidebar: () => void }) {
-  const titles: Record<Page, string> = {
-    dashboard: 'Finance dashboard',
-    'receipts-inbox': 'Receipts Inbox',
-    'processed-receipts': 'Processed Receipts',
-    'family-dashboard': 'Family Budget',
-    'family-projections': 'Projections',
-    'family-actuals': 'Actual Costs',
-    business: 'Business budgets',
-    'settings-sharepoint': 'SharePoint Library Settings',
-    'settings-ai-ocr': 'AI + OCR',
-    'settings-family-budget': 'Family Budget Settings',
-    'settings-backup': 'Backup & Restore',
-    'settings-bank': 'Bank Accounts'
-  };
-
+function TopBar({
+  page,
+  sidebarCollapsed,
+  onToggleSidebar,
+  userProfiles,
+  activeProfileId,
+  onProfileChange
+}: {
+  page: Page;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+  userProfiles: UserProfile[];
+  activeProfileId: string;
+  onProfileChange: (profileId: string) => void;
+}) {
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -344,10 +416,17 @@ function TopBar({ page, sidebarCollapsed, onToggleSidebar }: { page: Page; sideb
         </button>
         <div>
           <p className="eyebrow">Local development workspace</p>
-          <h1>{titles[page]}</h1>
+          <h1>{pageLabels[page]}</h1>
         </div>
       </div>
-
+      <div className="topbar-actions">
+        <label className="profile-switcher">Profile
+          <select value={activeProfileId} onChange={(event) => onProfileChange(event.target.value)}>
+            {userProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+          </select>
+        </label>
+        <span className="status-chip ready"><Cloud size={14} /> Local-first</span>
+      </div>
     </header>
   );
 }
@@ -2482,7 +2561,23 @@ function formatDateTime(value: string): string {
   return date.toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function SettingsPage({ section, settings, update }: { section: 'sharepoint' | 'ai-ocr' | 'family-budget' | 'backup' | 'bank'; settings: SettingsState; update: (patch: Partial<SettingsState>) => void }) {
+function SettingsPage({
+  section,
+  settings,
+  update,
+  userProfiles = [],
+  setUserProfiles,
+  activeProfileId,
+  setActiveProfileId
+}: {
+  section: 'sharepoint' | 'ai-ocr' | 'family-budget' | 'users' | 'backup' | 'bank';
+  settings: SettingsState;
+  update: (patch: Partial<SettingsState>) => void;
+  userProfiles?: UserProfile[];
+  setUserProfiles?: React.Dispatch<React.SetStateAction<UserProfile[]>>;
+  activeProfileId?: string;
+  setActiveProfileId?: (profileId: string) => void;
+}) {
   const [clientSecretDraft, setClientSecretDraft] = useState('');
   const [aiApiKeyDraft, setAiApiKeyDraft] = useState('');
   const [aiFieldDefinitions, setAiFieldDefinitions] = useState<AiFieldDefinition[]>([]);
@@ -2495,6 +2590,7 @@ function SettingsPage({ section, settings, update }: { section: 'sharepoint' | '
   const [familyBudgetCategories, setFamilyBudgetCategories] = useState<string[]>([]);
   const [familyBudgetCategoryDraft, setFamilyBudgetCategoryDraft] = useState('');
   const [familyBudgetStatus, setFamilyBudgetStatus] = useState<string | null>(null);
+  const [userProfilesStatus, setUserProfilesStatus] = useState<string | null>(null);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -2654,6 +2750,25 @@ function SettingsPage({ section, settings, update }: { section: 'sharepoint' | '
     }
   };
 
+  const saveUserProfiles = async (profiles = userProfiles) => {
+    if (!setUserProfiles) return;
+    setUserProfilesStatus('Saving user profiles…');
+    try {
+      const response = await fetch('/api/settings/user-profiles', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profiles })
+      });
+      if (!response.ok) throw new Error(`User profile save failed with HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.status === 'failed') throw new Error(result.message || 'Could not save user profiles.');
+      setUserProfiles(result.profiles || []);
+      setUserProfilesStatus(result.message || 'Saved user profiles.');
+    } catch (error) {
+      setUserProfilesStatus(error instanceof Error ? error.message : 'Could not save user profiles.');
+    }
+  };
+
   const testSharePointConnection = async () => {
     setTestStatus('Testing SharePoint configuration…');
     try {
@@ -2790,6 +2905,72 @@ function SettingsPage({ section, settings, update }: { section: 'sharepoint' | '
             <button className="secondary-button" type="button" onClick={() => saveFamilyBudgetCategories()}>Save categories</button>
           </div>
           {familyBudgetStatus && <p className="help-text">{familyBudgetStatus}</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (section === 'users') {
+    const updateProfile = (profileId: string, patch: Partial<UserProfile>) => {
+      setUserProfiles?.((current) => current.map((profile) => profile.id === profileId ? { ...profile, ...patch } : profile));
+    };
+    const togglePermission = (profileId: string, permission: Page) => {
+      setUserProfiles?.((current) => current.map((profile) => {
+        if (profile.id !== profileId) return profile;
+        const permissions = profile.permissions.includes(permission)
+          ? profile.permissions.filter((item) => item !== permission)
+          : [...profile.permissions, permission];
+        return { ...profile, permissions };
+      }));
+    };
+    const addProfile = () => {
+      const id = `profile-${Date.now()}`;
+      const nextProfiles = [...userProfiles, { id, name: 'New profile', role: 'User', permissions: ['dashboard'] as Page[] }];
+      setUserProfiles?.(nextProfiles);
+      void saveUserProfiles(nextProfiles);
+    };
+    const deleteProfile = (profileId: string) => {
+      if (userProfiles.length <= 1) {
+        setUserProfilesStatus('Keep at least one profile.');
+        return;
+      }
+      const nextProfiles = userProfiles.filter((profile) => profile.id !== profileId);
+      setUserProfiles?.(nextProfiles);
+      if (activeProfileId === profileId) setActiveProfileId?.(nextProfiles[0]?.id || 'owner');
+      void saveUserProfiles(nextProfiles);
+    };
+
+    return (
+      <section className="settings-layout single-settings-page">
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">Access control</p><h2>User Profiles</h2></div><button className="primary-button" type="button" onClick={addProfile}>Add profile</button></div>
+          <p className="help-text">Choose which sidebar areas each profile can access. This is local app-level access control; add backend authentication before exposing the app outside a trusted local network.</p>
+          <div className="profiles-settings-list">
+            {userProfiles.map((profile) => (
+              <div className="profile-settings-card" key={profile.id}>
+                <div className="form-grid">
+                  <label>Name<input value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
+                  <label>Role<input value={profile.role} onChange={(event) => updateProfile(profile.id, { role: event.target.value })} /></label>
+                </div>
+                <div className="permission-grid">
+                  {allPermissionPages.map((permission) => (
+                    <label key={permission} className="permission-check">
+                      <input type="checkbox" checked={profile.permissions.includes(permission)} onChange={() => togglePermission(profile.id, permission)} />
+                      <span>{pageLabels[permission]}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="button-row">
+                  <button className="secondary-button" type="button" onClick={() => saveUserProfiles()}>Save profiles</button>
+                  <button className="secondary-button danger-button" type="button" onClick={() => deleteProfile(profile.id)}>Delete profile</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="button-row">
+            <button className="primary-button" type="button" onClick={() => saveUserProfiles()}>Save all profiles</button>
+            {userProfilesStatus && <span className="help-text inline-help">{userProfilesStatus}</span>}
+          </div>
         </div>
       </section>
     );

@@ -80,6 +80,8 @@ Only expose what you need. For a private LAN install, ports `5174` and optionall
 
 If exposing this outside the LAN, put it behind HTTPS and authentication first. The app handles financial/tax information and should not be published directly to the internet without hardening.
 
+Settings → User Profiles controls which sidebar areas are visible to each local profile, but it is not full server-side authentication. Treat it as local convenience access control until backend auth/API permission checks are added.
+
 ## Data location
 
 All portable application data lives under:

@@ -116,6 +116,9 @@ nav { display: grid; gap: 6px; }
 .main-panel { padding: clamp(18px, 2vw, 28px); width: 100%; max-width: none; min-width: 0; margin: 0 auto; }
 .topbar { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 24px; }
 .topbar-title { display: flex; align-items: flex-start; gap: 12px; }
+.topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.profile-switcher { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.profile-switcher select { min-width: 150px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); }
 h1, h2, p { margin: 0; }
 h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; }
 h2 { letter-spacing: -0.03em; }
@@ -201,6 +204,11 @@ h2 { letter-spacing: -0.03em; }
 .schedule-inline-row label { grid-column: auto !important; }
 .category-settings-list { display: grid; gap: 10px; margin-top: 16px; }
 .category-settings-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.profiles-settings-list { display: grid; gap: 16px; margin-top: 18px; }
+.profile-settings-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 20px; background: color-mix(in srgb, var(--panel) 58%, transparent); }
+.permission-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.permission-check { display: flex !important; align-items: center; gap: 8px !important; padding: 9px 10px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--text) !important; }
+.permission-check input { width: auto; }
 .backup-actions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
 .backup-action-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; padding: 16px; border: 1px solid var(--border); border-radius: 20px; background: color-mix(in srgb, var(--panel) 58%, transparent); }
 .backup-action-card svg { color: var(--accent); margin-top: 3px; }
@@ -317,7 +325,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
   .sidebar { position: relative; height: auto; }
   .app-shell.sidebar-collapsed .sidebar { display: none; }
   .topbar-sidebar-toggle { display: grid; }
-  .content-grid, .settings-layout, .workflow-strip, .detail-layout, .table-controls, .budget-schedules-grid, .budget-insights-hero, .category-charts-grid, .backup-actions-grid, .detail-summary-grid, .dashboard-category-detail-grid { grid-template-columns: 1fr; }
+  .content-grid, .settings-layout, .workflow-strip, .detail-layout, .table-controls, .budget-schedules-grid, .budget-insights-hero, .category-charts-grid, .permission-grid, .backup-actions-grid, .detail-summary-grid, .dashboard-category-detail-grid { grid-template-columns: 1fr; }
   .span-2, .action-card { grid-column: span 1; }
   .topbar { flex-direction: column; }
   .search-pill { min-width: 0; width: 100%; }

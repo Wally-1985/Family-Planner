@@ -99,6 +99,23 @@ class BackupRestoreResponse(BaseModel):
     safety_backup: str | None = None
 
 
+class UserProfile(BaseModel):
+    id: str
+    name: str
+    role: str = "User"
+    permissions: list[str] = Field(default_factory=list)
+
+
+class UserProfilesResponse(BaseModel):
+    status: Literal["ok", "failed"] = "ok"
+    message: str
+    profiles: list[UserProfile] = Field(default_factory=list)
+
+
+class UserProfilesUpdate(BaseModel):
+    profiles: list[UserProfile] = Field(default_factory=list)
+
+
 class SharePointTestResponse(BaseModel):
     status: Literal["not-configured", "connected", "failed"]
     message: str
@@ -310,6 +327,28 @@ BUDGET_DB_PATH = DATA_DIR / "family_budget.sqlite3"
 FIELD_DEFINITIONS_PATH = DATA_DIR / "ai_field_definitions.json"
 SHAREPOINT_FIELD_SETTINGS_PATH = DATA_DIR / "sharepoint_field_settings.json"
 BACKUP_DIR = DATA_DIR / "backups"
+USER_PROFILES_PATH = DATA_DIR / "user_profiles.json"
+
+DEFAULT_PAGE_PERMISSIONS = [
+    "dashboard",
+    "receipts-inbox",
+    "processed-receipts",
+    "family-dashboard",
+    "family-projections",
+    "family-actuals",
+    "business",
+    "settings-sharepoint",
+    "settings-ai-ocr",
+    "settings-family-budget",
+    "settings-users",
+    "settings-backup",
+    "settings-bank",
+]
+
+DEFAULT_USER_PROFILES = [
+    {"id": "owner", "name": "Owner", "role": "Administrator", "permissions": DEFAULT_PAGE_PERMISSIONS},
+    {"id": "family", "name": "Family", "role": "Family budget", "permissions": ["dashboard", "family-dashboard", "family-projections", "family-actuals"]},
+]
 
 
 def safe_backup_member(name: str) -> Path:
@@ -357,6 +396,21 @@ def restore_data_zip(content: bytes) -> tuple[list[str], str]:
                 shutil.copyfileobj(source, destination)
             restored.append(relative.as_posix())
     return restored, safety_backup
+
+
+def get_user_profiles() -> list[UserProfile]:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not USER_PROFILES_PATH.exists():
+        USER_PROFILES_PATH.write_text(json.dumps(DEFAULT_USER_PROFILES, indent=2))
+    profiles = json.loads(USER_PROFILES_PATH.read_text() or "[]")
+    return [UserProfile(**profile) for profile in profiles]
+
+
+def save_user_profiles(profiles: list[UserProfile]) -> list[UserProfile]:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    clean_profiles = [profile.model_dump() for profile in profiles if profile.id.strip() and profile.name.strip()]
+    USER_PROFILES_PATH.write_text(json.dumps(clean_profiles, indent=2))
+    return [UserProfile(**profile) for profile in clean_profiles]
 
 
 def update_env_file(updates: dict[str, str]) -> None:
@@ -795,6 +849,24 @@ async def restore_data_backup_route(file: UploadFile = File(...)) -> BackupResto
         return BackupRestoreResponse(status="failed", message="That file is not a valid zip backup.")
     except Exception as exc:
         return BackupRestoreResponse(status="failed", message=f"Restore failed: {exc}")
+
+
+@app.get("/api/settings/user-profiles", response_model=UserProfilesResponse)
+def read_user_profiles() -> UserProfilesResponse:
+    try:
+        profiles = get_user_profiles()
+        return UserProfilesResponse(message=f"Loaded {len(profiles)} user profile{'s' if len(profiles) != 1 else ''}.", profiles=profiles)
+    except Exception as exc:
+        return UserProfilesResponse(status="failed", message=f"Could not load user profiles: {exc}")
+
+
+@app.put("/api/settings/user-profiles", response_model=UserProfilesResponse)
+def update_user_profiles(update: UserProfilesUpdate) -> UserProfilesResponse:
+    try:
+        profiles = save_user_profiles(update.profiles)
+        return UserProfilesResponse(message=f"Saved {len(profiles)} user profile{'s' if len(profiles) != 1 else ''}.", profiles=profiles)
+    except Exception as exc:
+        return UserProfilesResponse(status="failed", message=f"Could not save user profiles: {exc}")
 
 
 @app.get("/api/settings/connectors", response_model=ConnectorSettings)

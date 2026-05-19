@@ -1,0 +1,33 @@
+[
+  {
+    "id": "owner",
+    "name": "Owner",
+    "role": "Administrator",
+    "permissions": [
+      "dashboard",
+      "receipts-inbox",
+      "processed-receipts",
+      "family-dashboard",
+      "family-projections",
+      "family-actuals",
+      "business",
+      "settings-sharepoint",
+      "settings-ai-ocr",
+      "settings-family-budget",
+      "settings-users",
+      "settings-backup",
+      "settings-bank"
+    ]
+  },
+  {
+    "id": "family",
+    "name": "Family",
+    "role": "Family budget",
+    "permissions": [
+      "dashboard",
+      "family-dashboard",
+      "family-projections",
+      "family-actuals"
+    ]
+  }
+]
