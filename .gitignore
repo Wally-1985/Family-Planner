@@ -32,11 +32,9 @@ BOOTSTRAP.md*
 HANDOFF_FROM_MAIN.md*
 HEARTBEAT.md
 IDENTITY.md
-MEMORY.md
 SOUL.md
 TOOLS.md
 USER.md
-memory/
 
 # OS/editor
 .DS_Store
