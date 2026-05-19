@@ -4,6 +4,7 @@
     "name": "Owner",
     "role": "Administrator",
     "pin": "",
+    "email": "",
     "permissions": [
       "dashboard",
       "receipts-inbox",
@@ -25,6 +26,7 @@
     "name": "Family",
     "role": "User",
     "pin": "",
+    "email": "",
     "permissions": [
       "dashboard",
       "family-dashboard",

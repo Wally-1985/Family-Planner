@@ -127,7 +127,12 @@ nav { display: grid; gap: 6px; }
 .profile-tile small { color: var(--muted); }
 .profile-pin-card { width: min(420px, 100%); margin: 20px auto 0; padding: 18px; border: 1px solid var(--border); border-radius: 22px; background: var(--card); box-shadow: var(--shadow); text-align: left; }
 .profile-pin-card input { width: 100%; margin: 8px 0 12px; }
+.forgot-pin-link { display: inline-flex; margin: -2px 0 12px; color: var(--accent); font-weight: 700; text-decoration: none; }
 .profile-error { color: #c23b3b; font-weight: 700; }
+.password-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.password-field input { width: 100%; }
+.icon-field-button { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--muted); padding: 10px 12px; cursor: pointer; }
+.icon-field-button:hover { border-color: var(--accent); color: var(--text); }
 h1, h2, p { margin: 0; }
 h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.04em; }
 h2 { letter-spacing: -0.03em; }

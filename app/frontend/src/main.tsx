@@ -50,6 +50,7 @@ type UserProfile = {
   name: string;
   role: 'Administrator' | 'User';
   pin: string;
+  email: string;
   permissions: Page[];
 };
 
@@ -72,8 +73,8 @@ const pageLabels: Record<Page, string> = {
 const allPermissionPages = Object.keys(pageLabels) as Page[];
 
 const defaultUserProfiles: UserProfile[] = [
-  { id: 'owner', name: 'Owner', role: 'Administrator', pin: '', permissions: allPermissionPages },
-  { id: 'family', name: 'Family', role: 'User', pin: '', permissions: ['dashboard', 'family-dashboard', 'family-projections', 'family-actuals'] }
+  { id: 'owner', name: 'Owner', role: 'Administrator', pin: '', email: '', permissions: allPermissionPages },
+  { id: 'family', name: 'Family', role: 'User', pin: '', email: '', permissions: ['dashboard', 'family-dashboard', 'family-projections', 'family-actuals'] }
 ];
 
 const firstAllowedPage = (profile: UserProfile | undefined): Page => profile?.permissions?.[0] || 'dashboard';
@@ -288,7 +289,7 @@ function App() {
         const result = await response.json();
         if (result.status === 'failed') throw new Error(result.message || 'Could not load user profiles.');
         if (Array.isArray(result.profiles) && result.profiles.length) {
-          setUserProfiles(result.profiles.map((profile: UserProfile) => ({ ...profile, pin: profile.pin || '', role: profile.role === 'Administrator' ? 'Administrator' : 'User' })));
+          setUserProfiles(result.profiles.map((profile: UserProfile) => ({ ...profile, pin: profile.pin || '', email: profile.email || '', role: profile.role === 'Administrator' ? 'Administrator' : 'User' })));
         }
       } catch {
         setUserProfiles(defaultUserProfiles);
@@ -370,6 +371,7 @@ function ProfileSelectScreen({
             <h2>{pendingProfile.name} PIN</h2>
             <p className="help-text">Enter the Administrator PIN to continue.</p>
             <input type="password" inputMode="numeric" autoFocus value={pin} onChange={(event) => onPinChange(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onUnlock(); }} placeholder="PIN" />
+            {pendingProfile.email && <a className="forgot-pin-link" href={`mailto:${pendingProfile.email}?subject=Family Planner PIN reset request&body=Hi, I need help resetting the Administrator PIN for ${encodeURIComponent(pendingProfile.name)}.`}>Forgot your PIN?</a>}
             <div className="button-row">
               <button className="primary-button" type="button" onClick={onUnlock}>Unlock</button>
               <button className="secondary-button" type="button" onClick={onCancel}>Cancel</button>
@@ -2673,6 +2675,8 @@ function SettingsPage({
   const [familyBudgetCategoryDraft, setFamilyBudgetCategoryDraft] = useState('');
   const [familyBudgetStatus, setFamilyBudgetStatus] = useState<string | null>(null);
   const [userProfilesStatus, setUserProfilesStatus] = useState<string | null>(null);
+  const [pinConfirmDrafts, setPinConfirmDrafts] = useState<Record<string, string>>({});
+  const [visiblePins, setVisiblePins] = useState<Record<string, boolean>>({});
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -2834,6 +2838,16 @@ function SettingsPage({
 
   const saveUserProfiles = async (profiles = userProfiles) => {
     if (!setUserProfiles) return;
+    const pinMismatch = profiles.find((profile) => profile.role === 'Administrator' && profile.pin && pinConfirmDrafts[profile.id] !== profile.pin);
+    if (pinMismatch) {
+      setUserProfilesStatus(`Confirm the PIN for ${pinMismatch.name} before saving.`);
+      return;
+    }
+    const missingEmail = profiles.find((profile) => profile.role === 'Administrator' && profile.pin && !profile.email.trim());
+    if (missingEmail) {
+      setUserProfilesStatus(`Add a reset email address for ${missingEmail.name} before saving a PIN.`);
+      return;
+    }
     setUserProfilesStatus('Saving user profiles…');
     try {
       const response = await fetch('/api/settings/user-profiles', {
@@ -3007,7 +3021,7 @@ function SettingsPage({
     };
     const addProfile = () => {
       const id = `profile-${Date.now()}`;
-      const nextProfiles = [...userProfiles, { id, name: 'New profile', role: 'User' as const, pin: '', permissions: ['dashboard'] as Page[] }];
+      const nextProfiles = [...userProfiles, { id, name: 'New profile', role: 'User' as const, pin: '', email: '', permissions: ['dashboard'] as Page[] }];
       setUserProfiles?.(nextProfiles);
       void saveUserProfiles(nextProfiles);
     };
@@ -3032,8 +3046,10 @@ function SettingsPage({
               <div className="profile-settings-card" key={profile.id}>
                 <div className="form-grid">
                   <label>Name<input value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
-                  <label>Role<select value={profile.role} onChange={(event) => updateProfile(profile.id, { role: event.target.value as UserProfile['role'] })}><option value="Administrator">Administrator</option><option value="User">User</option></select></label>
-                  {profile.role === 'Administrator' && <label>PIN<input type="password" inputMode="numeric" value={profile.pin || ''} onChange={(event) => updateProfile(profile.id, { pin: event.target.value })} placeholder="Optional, required at profile selection when set" /></label>}
+                  <label>Role<select value={profile.role} onChange={(event) => updateProfile(profile.id, { role: event.target.value as UserProfile['role'], pin: event.target.value === 'Administrator' ? profile.pin : '', email: event.target.value === 'Administrator' ? profile.email : '' })}><option value="Administrator">Administrator</option><option value="User">User</option></select></label>
+                  {profile.role === 'Administrator' && <label>PIN<div className="password-field"><input type={visiblePins[profile.id] ? 'text' : 'password'} inputMode="numeric" value={profile.pin || ''} onChange={(event) => updateProfile(profile.id, { pin: event.target.value })} placeholder="Optional, required at profile selection when set" /><button type="button" className="icon-field-button" onClick={() => setVisiblePins((current) => ({ ...current, [profile.id]: !current[profile.id] }))}>{visiblePins[profile.id] ? 'Hide' : 'Show'}</button></div></label>}
+                  {profile.role === 'Administrator' && profile.pin && <label>Confirm PIN<div className="password-field"><input type={visiblePins[`${profile.id}-confirm`] ? 'text' : 'password'} inputMode="numeric" value={pinConfirmDrafts[profile.id] || ''} onChange={(event) => setPinConfirmDrafts((current) => ({ ...current, [profile.id]: event.target.value }))} placeholder="Re-enter PIN" /><button type="button" className="icon-field-button" onClick={() => setVisiblePins((current) => ({ ...current, [`${profile.id}-confirm`]: !current[`${profile.id}-confirm`] }))}>{visiblePins[`${profile.id}-confirm`] ? 'Hide' : 'Show'}</button></div></label>}
+                  {profile.role === 'Administrator' && profile.pin && <label>Reset email<input type="email" value={profile.email || ''} onChange={(event) => updateProfile(profile.id, { email: event.target.value })} placeholder="Used for the Forgot your PIN link" /></label>}
                 </div>
                 <div className="permission-grid">
                   {allPermissionPages.map((permission) => (

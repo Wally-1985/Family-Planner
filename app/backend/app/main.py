@@ -104,6 +104,7 @@ class UserProfile(BaseModel):
     name: str
     role: Literal["Administrator", "User"] = "User"
     pin: str = ""
+    email: str = ""
     permissions: list[str] = Field(default_factory=list)
 
 
@@ -347,8 +348,8 @@ DEFAULT_PAGE_PERMISSIONS = [
 ]
 
 DEFAULT_USER_PROFILES = [
-    {"id": "owner", "name": "Owner", "role": "Administrator", "pin": "", "permissions": DEFAULT_PAGE_PERMISSIONS},
-    {"id": "family", "name": "Family", "role": "User", "pin": "", "permissions": ["dashboard", "family-dashboard", "family-projections", "family-actuals"]},
+    {"id": "owner", "name": "Owner", "role": "Administrator", "pin": "", "email": "", "permissions": DEFAULT_PAGE_PERMISSIONS},
+    {"id": "family", "name": "Family", "role": "User", "pin": "", "email": "", "permissions": ["dashboard", "family-dashboard", "family-projections", "family-actuals"]},
 ]
 
 
