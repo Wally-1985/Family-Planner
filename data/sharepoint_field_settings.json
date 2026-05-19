@@ -1,0 +1,20 @@
+{
+  "show_in_input_form": {
+    "Category": true,
+    "Frequency": true,
+    "IncludeinClaim": true,
+    "Invoice": true,
+    "InvoiceTotal": true,
+    "Invoice_x0020_Date": true,
+    "Job": true,
+    "MediaServiceImageTags": false,
+    "Other_x0020_Notes": true,
+    "Portion": true,
+    "Processed": false,
+    "Ref_x0020_Number": false,
+    "Supplier": true,
+    "Title": false,
+    "_ExtendedDescription": false,
+    "pdflink": false
+  }
+}

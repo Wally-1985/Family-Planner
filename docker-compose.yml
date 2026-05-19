@@ -1,0 +1,26 @@
+services:
+  frontend:
+    build: ./app/frontend
+    ports:
+      - "5174:5174"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build: ./app/backend
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      ENV_PATH: /data/.env.runtime
+    restart: unless-stopped
+
+# PostgreSQL and Redis are intentionally not required yet. The current app stores
+# local application data in ./data/*.sqlite3 and JSON settings files so backup and
+# migration are simple. Add database services later only when the backend actually
+# starts using them.
