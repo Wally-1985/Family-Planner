@@ -345,3 +345,17 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
   .topbar { flex-direction: column; }
   .search-pill { min-width: 0; width: 100%; }
 }
+
+/* ── Chores ─────────────────────────────────────────────────────────────── */
+.chores-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.chore-row { display: flex; align-items: flex-start; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.chore-row:last-child { border-bottom: none; }
+.chore-done .chore-info strong { text-decoration: line-through; color: var(--muted); }
+.chore-done .chore-circle { background: var(--accent); border-color: var(--accent); }
+.chore-done .chore-circle::after { content: '✓'; color: #fff; font-size: 13px; display: block; line-height: 26px; text-align: center; }
+.chore-circle { width: 28px; height: 28px; min-width: 28px; border-radius: 50%; border: 2px solid var(--border); background: transparent; cursor: pointer; transition: background 0.15s, border-color 0.15s; margin-top: 2px; padding: 0; }
+.chore-circle:hover { border-color: var(--accent); }
+.chore-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.chore-info strong { font-size: 1rem; }
+.chore-description { color: var(--muted); font-size: 0.875rem; }
+.chore-meta { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }

@@ -1,7 +1,7 @@
 [
   {
     "id": "owner",
-    "name": "Owner",
+    "name": "Mum + Dad",
     "role": "Administrator",
     "pin": "2830",
     "email": "james.w1985@outlook.com.au",
@@ -24,7 +24,19 @@
   },
   {
     "id": "family",
-    "name": "Family",
+    "name": "Max",
+    "role": "User",
+    "pin": "",
+    "email": "",
+    "permissions": [
+      "family-dashboard",
+      "family-projections",
+      "family-actuals"
+    ]
+  },
+  {
+    "id": "profile-1779169171158",
+    "name": "Isaac",
     "role": "User",
     "pin": "",
     "email": "",
