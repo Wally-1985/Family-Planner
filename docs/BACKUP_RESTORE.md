@@ -15,6 +15,14 @@ Do **not** commit either to GitHub. They can contain financial data and secrets.
 
 ## Create a data backup
 
+### In the app UI
+
+Open **Settings → Backup & Restore** and click **Download .zip backup**.
+
+This downloads a zip containing the local app data files from `data/`. It does not include `.env` secrets.
+
+### From the command line
+
 From the repo root:
 
 ```bash
@@ -30,6 +38,18 @@ data/backups/finances-data-20260519-133000.tar.gz
 Copy that backup file somewhere safe, plus a separate copy of `.env`.
 
 ## Restore data on another computer
+
+### In the app UI
+
+1. Install and start the app on the new computer using `docs/DEPLOYMENT.md`.
+2. Open **Settings → Backup & Restore**.
+3. Choose the downloaded `.zip` backup.
+4. Click **Restore selected .zip**.
+5. Copy your private `.env` separately if SharePoint/AI credentials are needed.
+
+The backend creates a safety backup before restoring.
+
+### From the command line
 
 1. Install the app on the new computer using `docs/DEPLOYMENT.md`.
 2. Copy your backup tarball onto the new computer.

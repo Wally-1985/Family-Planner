@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from datetime import datetime, timezone
 from enum import Enum
@@ -87,6 +90,13 @@ class SaveSettingsResponse(BaseModel):
     saved_to: str
     client_secret_saved: bool
     reminder_message: str | None = None
+
+
+class BackupRestoreResponse(BaseModel):
+    status: Literal["ok", "failed"] = "ok"
+    message: str
+    restored_files: list[str] = Field(default_factory=list)
+    safety_backup: str | None = None
 
 
 class SharePointTestResponse(BaseModel):
@@ -299,6 +309,54 @@ DRAFT_DB_PATH = DATA_DIR / "receipt_drafts.sqlite3"
 BUDGET_DB_PATH = DATA_DIR / "family_budget.sqlite3"
 FIELD_DEFINITIONS_PATH = DATA_DIR / "ai_field_definitions.json"
 SHAREPOINT_FIELD_SETTINGS_PATH = DATA_DIR / "sharepoint_field_settings.json"
+BACKUP_DIR = DATA_DIR / "backups"
+
+
+def safe_backup_member(name: str) -> Path:
+    member = Path(name)
+    if member.is_absolute() or ".." in member.parts or not name.strip():
+        raise ValueError(f"Unsafe backup path: {name}")
+    return member
+
+
+def create_data_zip() -> bytes:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    buffer = io.BytesIO()
+    excluded_roots = {"backups", "cache"}
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(DATA_DIR.rglob("*")):
+            if path.is_dir():
+                continue
+            relative = path.relative_to(DATA_DIR)
+            if relative.parts and relative.parts[0] in excluded_roots:
+                continue
+            archive.write(path, relative.as_posix())
+    return buffer.getvalue()
+
+
+def write_safety_backup() -> str:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    backup_path = BACKUP_DIR / f"pre-restore-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    backup_path.write_bytes(create_data_zip())
+    return str(backup_path)
+
+
+def restore_data_zip(content: bytes) -> tuple[list[str], str]:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    safety_backup = write_safety_backup()
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        members = [member for member in archive.infolist() if not member.is_dir()]
+        restored: list[str] = []
+        for member in members:
+            relative = safe_backup_member(member.filename)
+            if relative.parts and relative.parts[0] in {"backups", "cache"}:
+                continue
+            target = DATA_DIR / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+            restored.append(relative.as_posix())
+    return restored, safety_backup
 
 
 def update_env_file(updates: dict[str, str]) -> None:
@@ -710,6 +768,33 @@ def save_actual_costs(update: ActualCostsUpdate) -> ActualCostsResponse:
         return ActualCostsResponse(status="ok", message=f"Saved {len(transactions)} actual cost transaction{'s' if len(transactions) != 1 else ''}.", transactions=transactions)
     except Exception as exc:  # noqa: BLE001
         return ActualCostsResponse(status="failed", message=str(exc), transactions=[])
+
+
+@app.get("/api/settings/backup")
+def download_data_backup() -> Response:
+    filename = f"finances-data-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    return Response(
+        content=create_data_zip(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/settings/backup/restore", response_model=BackupRestoreResponse)
+async def restore_data_backup_route(file: UploadFile = File(...)) -> BackupRestoreResponse:
+    if not file.filename.lower().endswith(".zip"):
+        return BackupRestoreResponse(status="failed", message="Please upload a .zip backup file.")
+    try:
+        restored, safety_backup = restore_data_zip(await file.read())
+        return BackupRestoreResponse(
+            message=f"Restored {len(restored)} file{'s' if len(restored) != 1 else ''}. Restart the app if anything looks stale.",
+            restored_files=restored,
+            safety_backup=safety_backup,
+        )
+    except zipfile.BadZipFile:
+        return BackupRestoreResponse(status="failed", message="That file is not a valid zip backup.")
+    except Exception as exc:
+        return BackupRestoreResponse(status="failed", message=f"Restore failed: {exc}")
 
 
 @app.get("/api/settings/connectors", response_model=ConnectorSettings)

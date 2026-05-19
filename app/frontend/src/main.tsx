@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Cloud,
+  Download,
   RefreshCw,
   FileScan,
   Home,
@@ -22,6 +23,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Upload,
   WalletCards
 } from 'lucide-react';
 import {
@@ -41,7 +43,7 @@ import {
 import './styles.css';
 
 type Theme = 'light' | 'dark' | 'system';
-type Page = 'dashboard' | 'receipts-inbox' | 'processed-receipts' | 'family-dashboard' | 'family-projections' | 'family-actuals' | 'business' | 'settings-sharepoint' | 'settings-ai-ocr' | 'settings-family-budget' | 'settings-bank';
+type Page = 'dashboard' | 'receipts-inbox' | 'processed-receipts' | 'family-dashboard' | 'family-projections' | 'family-actuals' | 'business' | 'settings-sharepoint' | 'settings-ai-ocr' | 'settings-family-budget' | 'settings-backup' | 'settings-bank';
 
 type ConnectorStatus = 'not-connected' | 'ready' | 'needs-review';
 
@@ -221,6 +223,7 @@ function App() {
         {page === 'settings-sharepoint' && <SettingsPage section="sharepoint" settings={settings} update={updateSettings} />}
         {page === 'settings-ai-ocr' && <SettingsPage section="ai-ocr" settings={settings} update={updateSettings} />}
         {page === 'settings-family-budget' && <SettingsPage section="family-budget" settings={settings} update={updateSettings} />}
+        {page === 'settings-backup' && <SettingsPage section="backup" settings={settings} update={updateSettings} />}
         {page === 'settings-bank' && <SettingsPage section="bank" settings={settings} update={updateSettings} />}
       </main>
     </div>
@@ -245,7 +248,7 @@ function Sidebar({
   ];
   const taxActive = current === 'receipts-inbox' || current === 'processed-receipts';
   const familyActive = current === 'family-dashboard' || current === 'family-projections' || current === 'family-actuals';
-  const settingsActive = current === 'settings-sharepoint' || current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-bank';
+  const settingsActive = current === 'settings-sharepoint' || current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-backup' || current === 'settings-bank';
 
   return (
     <aside className="sidebar">
@@ -302,6 +305,7 @@ function Sidebar({
               <button className={current === 'settings-sharepoint' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-sharepoint')}>SharePoint Library Settings</button>
               <button className={current === 'settings-ai-ocr' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-ai-ocr')}>AI + OCR</button>
               <button className={current === 'settings-family-budget' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-family-budget')}>Family Budget</button>
+              <button className={current === 'settings-backup' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-backup')}>Backup & Restore</button>
               <button className={current === 'settings-bank' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-bank')}>Bank Accounts</button>
             </div>
           )}
@@ -328,6 +332,7 @@ function TopBar({ page, sidebarCollapsed, onToggleSidebar }: { page: Page; sideb
     'settings-sharepoint': 'SharePoint Library Settings',
     'settings-ai-ocr': 'AI + OCR',
     'settings-family-budget': 'Family Budget Settings',
+    'settings-backup': 'Backup & Restore',
     'settings-bank': 'Bank Accounts'
   };
 
@@ -2477,7 +2482,7 @@ function formatDateTime(value: string): string {
   return date.toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function SettingsPage({ section, settings, update }: { section: 'sharepoint' | 'ai-ocr' | 'family-budget' | 'bank'; settings: SettingsState; update: (patch: Partial<SettingsState>) => void }) {
+function SettingsPage({ section, settings, update }: { section: 'sharepoint' | 'ai-ocr' | 'family-budget' | 'backup' | 'bank'; settings: SettingsState; update: (patch: Partial<SettingsState>) => void }) {
   const [clientSecretDraft, setClientSecretDraft] = useState('');
   const [aiApiKeyDraft, setAiApiKeyDraft] = useState('');
   const [aiFieldDefinitions, setAiFieldDefinitions] = useState<AiFieldDefinition[]>([]);
@@ -2490,6 +2495,8 @@ function SettingsPage({ section, settings, update }: { section: 'sharepoint' | '
   const [familyBudgetCategories, setFamilyBudgetCategories] = useState<string[]>([]);
   const [familyBudgetCategoryDraft, setFamilyBudgetCategoryDraft] = useState('');
   const [familyBudgetStatus, setFamilyBudgetStatus] = useState<string | null>(null);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const secretExpiryWarning = getSecretExpiryWarning(settings.sharePointClientSecretExpiry);
 
@@ -2660,6 +2667,50 @@ function SettingsPage({ section, settings, update }: { section: 'sharepoint' | '
     }
   };
 
+  const downloadBackup = async () => {
+    setBackupStatus('Preparing backup zip…');
+    try {
+      const response = await fetch('/api/settings/backup');
+      if (!response.ok) throw new Error(`Backup failed with HTTP ${response.status}`);
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `finances-data-${new Date().toISOString().slice(0, 10)}.zip`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setBackupStatus('Backup downloaded. Store it somewhere safe and separate from this computer.');
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : 'Backup failed. Is the backend running?');
+    }
+  };
+
+  const restoreBackup = async () => {
+    if (!restoreFile) {
+      setBackupStatus('Choose a .zip backup file first.');
+      return;
+    }
+    const confirmed = window.confirm('Restore this backup zip? This will overwrite app data files with the contents of the backup. A safety backup is created first.');
+    if (!confirmed) return;
+    setBackupStatus('Restoring backup…');
+    try {
+      const formData = new FormData();
+      formData.append('file', restoreFile);
+      const response = await fetch('/api/settings/backup/restore', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(`Restore failed with HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.status === 'failed') throw new Error(result.message || 'Restore failed.');
+      setRestoreFile(null);
+      setBackupStatus(`${result.message} Safety backup: ${result.safety_backup || 'created'}`);
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : 'Restore failed. Is the backend running?');
+    }
+  };
+
   if (section === 'ai-ocr') {
     return (
       <section className="settings-layout single-settings-page">
@@ -2739,6 +2790,38 @@ function SettingsPage({ section, settings, update }: { section: 'sharepoint' | '
             <button className="secondary-button" type="button" onClick={() => saveFamilyBudgetCategories()}>Save categories</button>
           </div>
           {familyBudgetStatus && <p className="help-text">{familyBudgetStatus}</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (section === 'backup') {
+    return (
+      <section className="settings-layout single-settings-page">
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">Portability</p><h2>Backup & Restore</h2></div></div>
+          <p className="help-text">Download a zip of the local app data, or restore one on this computer. Keep backups somewhere safe; they can contain sensitive financial information.</p>
+          <div className="backup-actions-grid">
+            <div className="backup-action-card">
+              <Download size={22} />
+              <div>
+                <h3>Download data backup</h3>
+                <p className="help-text">Exports SQLite databases and app JSON settings from the server data folder. Secrets in <code>.env</code> are not included.</p>
+                <button className="primary-button" type="button" onClick={downloadBackup}>Download .zip backup</button>
+              </div>
+            </div>
+            <div className="backup-action-card danger-zone-card">
+              <Upload size={22} />
+              <div>
+                <h3>Restore from backup</h3>
+                <p className="help-text">Restoring overwrites matching local data files. The backend creates a safety backup before extraction.</p>
+                <input type="file" accept=".zip,application/zip" onChange={(event) => setRestoreFile(event.target.files?.[0] || null)} />
+                {restoreFile && <p className="help-text">Selected: {restoreFile.name}</p>}
+                <button className="secondary-button danger-button" type="button" onClick={restoreBackup}>Restore selected .zip</button>
+              </div>
+            </div>
+          </div>
+          {backupStatus && <p className="help-text">{backupStatus}</p>}
         </div>
       </section>
     );
