@@ -3,6 +3,7 @@
     "id": "owner",
     "name": "Owner",
     "role": "Administrator",
+    "pin": "",
     "permissions": [
       "dashboard",
       "receipts-inbox",
@@ -22,7 +23,8 @@
   {
     "id": "family",
     "name": "Family",
-    "role": "Family budget",
+    "role": "User",
+    "pin": "",
     "permissions": [
       "dashboard",
       "family-dashboard",

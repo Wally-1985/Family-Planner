@@ -102,7 +102,8 @@ class BackupRestoreResponse(BaseModel):
 class UserProfile(BaseModel):
     id: str
     name: str
-    role: str = "User"
+    role: Literal["Administrator", "User"] = "User"
+    pin: str = ""
     permissions: list[str] = Field(default_factory=list)
 
 
@@ -346,8 +347,8 @@ DEFAULT_PAGE_PERMISSIONS = [
 ]
 
 DEFAULT_USER_PROFILES = [
-    {"id": "owner", "name": "Owner", "role": "Administrator", "permissions": DEFAULT_PAGE_PERMISSIONS},
-    {"id": "family", "name": "Family", "role": "Family budget", "permissions": ["dashboard", "family-dashboard", "family-projections", "family-actuals"]},
+    {"id": "owner", "name": "Owner", "role": "Administrator", "pin": "", "permissions": DEFAULT_PAGE_PERMISSIONS},
+    {"id": "family", "name": "Family", "role": "User", "pin": "", "permissions": ["dashboard", "family-dashboard", "family-projections", "family-actuals"]},
 ]
 
 
@@ -408,7 +409,11 @@ def get_user_profiles() -> list[UserProfile]:
 
 def save_user_profiles(profiles: list[UserProfile]) -> list[UserProfile]:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    clean_profiles = [profile.model_dump() for profile in profiles if profile.id.strip() and profile.name.strip()]
+    clean_profiles = [
+        {**profile.model_dump(), "permissions": [permission for permission in profile.permissions if permission in DEFAULT_PAGE_PERMISSIONS]}
+        for profile in profiles
+        if profile.id.strip() and profile.name.strip()
+    ]
     USER_PROFILES_PATH.write_text(json.dumps(clean_profiles, indent=2))
     return [UserProfile(**profile) for profile in clean_profiles]
 

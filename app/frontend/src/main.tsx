@@ -48,7 +48,8 @@ type Page = 'dashboard' | 'receipts-inbox' | 'processed-receipts' | 'family-dash
 type UserProfile = {
   id: string;
   name: string;
-  role: string;
+  role: 'Administrator' | 'User';
+  pin: string;
   permissions: Page[];
 };
 
@@ -71,8 +72,8 @@ const pageLabels: Record<Page, string> = {
 const allPermissionPages = Object.keys(pageLabels) as Page[];
 
 const defaultUserProfiles: UserProfile[] = [
-  { id: 'owner', name: 'Owner', role: 'Administrator', permissions: allPermissionPages },
-  { id: 'family', name: 'Family', role: 'Family budget', permissions: ['dashboard', 'family-dashboard', 'family-projections', 'family-actuals'] }
+  { id: 'owner', name: 'Owner', role: 'Administrator', pin: '', permissions: allPermissionPages },
+  { id: 'family', name: 'Family', role: 'User', pin: '', permissions: ['dashboard', 'family-dashboard', 'family-projections', 'family-actuals'] }
 ];
 
 const firstAllowedPage = (profile: UserProfile | undefined): Page => profile?.permissions?.[0] || 'dashboard';
@@ -206,13 +207,46 @@ function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [settings, setSettings] = useState<SettingsState>(readSettings);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>(defaultUserProfiles);
-  const [activeProfileId, setActiveProfileId] = useState(() => localStorage.getItem('finances.activeProfile') || 'owner');
+  const [activeProfileId, setActiveProfileId] = useState('');
+  const [pendingProfile, setPendingProfile] = useState<UserProfile | null>(null);
+  const [profilePin, setProfilePin] = useState('');
+  const [profileSelectError, setProfileSelectError] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const activeProfile = userProfiles.find((profile) => profile.id === activeProfileId) || userProfiles[0];
 
   const navigateToPage = (nextPage: Page) => {
     if (canAccessPage(activeProfile, nextPage)) setPage(nextPage);
+  };
+
+  const chooseProfile = (profile: UserProfile) => {
+    setProfileSelectError(null);
+    if (profile.role === 'Administrator' && profile.pin) {
+      setPendingProfile(profile);
+      setProfilePin('');
+      return;
+    }
+    setActiveProfileId(profile.id);
+    setPage(firstAllowedPage(profile));
+  };
+
+  const unlockPendingProfile = () => {
+    if (!pendingProfile) return;
+    if (profilePin !== pendingProfile.pin) {
+      setProfileSelectError('Incorrect PIN.');
+      return;
+    }
+    setActiveProfileId(pendingProfile.id);
+    setPage(firstAllowedPage(pendingProfile));
+    setPendingProfile(null);
+    setProfilePin('');
+  };
+
+  const signOutProfile = () => {
+    setActiveProfileId('');
+    setPendingProfile(null);
+    setProfilePin('');
+    setProfileSelectError(null);
   };
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -247,17 +281,15 @@ function App() {
   }, [settings, effectiveTheme]);
 
   useEffect(() => {
-    localStorage.setItem('finances.activeProfile', activeProfileId);
-  }, [activeProfileId]);
-
-  useEffect(() => {
     const loadProfiles = async () => {
       try {
         const response = await fetch('/api/settings/user-profiles');
         if (!response.ok) throw new Error('Could not load user profiles.');
         const result = await response.json();
         if (result.status === 'failed') throw new Error(result.message || 'Could not load user profiles.');
-        if (Array.isArray(result.profiles) && result.profiles.length) setUserProfiles(result.profiles);
+        if (Array.isArray(result.profiles) && result.profiles.length) {
+          setUserProfiles(result.profiles.map((profile: UserProfile) => ({ ...profile, pin: profile.pin || '', role: profile.role === 'Administrator' ? 'Administrator' : 'User' })));
+        }
       } catch {
         setUserProfiles(defaultUserProfiles);
       }
@@ -266,17 +298,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!activeProfile) return;
+    if (!activeProfileId || !activeProfile) return;
     if (!canAccessPage(activeProfile, page)) setPage(firstAllowedPage(activeProfile));
-  }, [activeProfile, page]);
+  }, [activeProfile, activeProfileId, page]);
 
   const updateSettings = (patch: Partial<SettingsState>) => setSettings((current) => ({ ...current, ...patch }));
+
+  if (!activeProfileId) {
+    return <ProfileSelectScreen profiles={userProfiles} pendingProfile={pendingProfile} pin={profilePin} error={profileSelectError} onChoose={chooseProfile} onPinChange={setProfilePin} onUnlock={unlockPendingProfile} onCancel={() => { setPendingProfile(null); setProfilePin(''); setProfileSelectError(null); }} />;
+  }
 
   return (
     <div className={sidebarCollapsed ? 'app-shell sidebar-collapsed' : 'app-shell'} style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}>
       <Sidebar current={page} onNavigate={navigateToPage} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} onResizeStart={startSidebarResize} activeProfile={activeProfile} />
       <main className="main-panel">
-        <TopBar page={page} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed((value) => !value)} userProfiles={userProfiles} activeProfileId={activeProfileId} onProfileChange={setActiveProfileId} />
+        <TopBar page={page} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed((value) => !value)} activeProfile={activeProfile} onSignOut={signOutProfile} />
         {page === 'dashboard' && <Dashboard onNavigate={setPage} />}
         {page === 'receipts-inbox' && <TaxReceipts />}
         {page === 'processed-receipts' && <ProcessedReceipts />}
@@ -292,6 +328,57 @@ function App() {
         {page === 'settings-bank' && <SettingsPage section="bank" settings={settings} update={updateSettings} />}
       </main>
     </div>
+  );
+}
+
+function ProfileSelectScreen({
+  profiles,
+  pendingProfile,
+  pin,
+  error,
+  onChoose,
+  onPinChange,
+  onUnlock,
+  onCancel
+}: {
+  profiles: UserProfile[];
+  pendingProfile: UserProfile | null;
+  pin: string;
+  error: string | null;
+  onChoose: (profile: UserProfile) => void;
+  onPinChange: (pin: string) => void;
+  onUnlock: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <main className="profile-select-screen">
+      <section className="profile-select-panel">
+        <p className="eyebrow">Family Planner</p>
+        <h1>Who’s using the app?</h1>
+        <p className="help-text">Choose a profile to continue. Administrator profiles may require a PIN.</p>
+        <div className="profile-tile-grid">
+          {profiles.map((profile) => (
+            <button className="profile-tile" type="button" key={profile.id} onClick={() => onChoose(profile)}>
+              <span className="profile-avatar">{profile.name.slice(0, 1).toUpperCase()}</span>
+              <strong>{profile.name}</strong>
+              <small>{profile.role}{profile.role === 'Administrator' && profile.pin ? ' · PIN required' : ''}</small>
+            </button>
+          ))}
+        </div>
+        {pendingProfile && (
+          <div className="profile-pin-card">
+            <h2>{pendingProfile.name} PIN</h2>
+            <p className="help-text">Enter the Administrator PIN to continue.</p>
+            <input type="password" inputMode="numeric" autoFocus value={pin} onChange={(event) => onPinChange(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onUnlock(); }} placeholder="PIN" />
+            <div className="button-row">
+              <button className="primary-button" type="button" onClick={onUnlock}>Unlock</button>
+              <button className="secondary-button" type="button" onClick={onCancel}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {error && <p className="help-text profile-error">{error}</p>}
+      </section>
+    </main>
   );
 }
 
@@ -397,16 +484,14 @@ function TopBar({
   page,
   sidebarCollapsed,
   onToggleSidebar,
-  userProfiles,
-  activeProfileId,
-  onProfileChange
+  activeProfile,
+  onSignOut
 }: {
   page: Page;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
-  userProfiles: UserProfile[];
-  activeProfileId: string;
-  onProfileChange: (profileId: string) => void;
+  activeProfile?: UserProfile;
+  onSignOut: () => void;
 }) {
   return (
     <header className="topbar">
@@ -420,11 +505,8 @@ function TopBar({
         </div>
       </div>
       <div className="topbar-actions">
-        <label className="profile-switcher">Profile
-          <select value={activeProfileId} onChange={(event) => onProfileChange(event.target.value)}>
-            {userProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-          </select>
-        </label>
+        {activeProfile && <span className="status-chip">{activeProfile.name} · {activeProfile.role}</span>}
+        <button className="secondary-button" type="button" onClick={onSignOut}>Switch profile</button>
         <span className="status-chip ready"><Cloud size={14} /> Local-first</span>
       </div>
     </header>
@@ -2925,7 +3007,7 @@ function SettingsPage({
     };
     const addProfile = () => {
       const id = `profile-${Date.now()}`;
-      const nextProfiles = [...userProfiles, { id, name: 'New profile', role: 'User', permissions: ['dashboard'] as Page[] }];
+      const nextProfiles = [...userProfiles, { id, name: 'New profile', role: 'User' as const, pin: '', permissions: ['dashboard'] as Page[] }];
       setUserProfiles?.(nextProfiles);
       void saveUserProfiles(nextProfiles);
     };
@@ -2950,7 +3032,8 @@ function SettingsPage({
               <div className="profile-settings-card" key={profile.id}>
                 <div className="form-grid">
                   <label>Name<input value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
-                  <label>Role<input value={profile.role} onChange={(event) => updateProfile(profile.id, { role: event.target.value })} /></label>
+                  <label>Role<select value={profile.role} onChange={(event) => updateProfile(profile.id, { role: event.target.value as UserProfile['role'] })}><option value="Administrator">Administrator</option><option value="User">User</option></select></label>
+                  {profile.role === 'Administrator' && <label>PIN<input type="password" inputMode="numeric" value={profile.pin || ''} onChange={(event) => updateProfile(profile.id, { pin: event.target.value })} placeholder="Optional, required at profile selection when set" /></label>}
                 </div>
                 <div className="permission-grid">
                   {allPermissionPages.map((permission) => (
