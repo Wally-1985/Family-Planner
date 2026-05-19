@@ -19,6 +19,7 @@ build/
 /data/*.db
 /data/backups/*
 /data/cache/*
+/data/pin_reset_tokens.json
 /data/uploads/*
 !/data/backups/.gitkeep
 !/data/cache/.gitkeep
