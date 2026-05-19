@@ -3210,16 +3210,16 @@ function SettingsPage({
             <div className="backup-action-card">
               <Download size={22} />
               <div>
-                <h3>Download data backup</h3>
-                <p className="help-text">Exports SQLite databases and app JSON settings from the server data folder. Secrets in <code>.env</code> are not included.</p>
-                <button className="primary-button" type="button" onClick={downloadBackup}>Download .zip backup</button>
+                <h3>Download full system backup</h3>
+                <p className="help-text">Exports local databases, app JSON settings, profile settings, and server <code>.env</code> config needed after cloning from GitHub. Treat this zip as sensitive.</p>
+                <button className="primary-button" type="button" onClick={downloadBackup}>Download full .zip backup</button>
               </div>
             </div>
             <div className="backup-action-card danger-zone-card">
               <Upload size={22} />
               <div>
                 <h3>Restore from backup</h3>
-                <p className="help-text">Restoring overwrites matching local data files. The backend creates a safety backup before extraction.</p>
+                <p className="help-text">Restoring overwrites matching local data/config files, including <code>.env</code> if present in the backup. The backend creates a safety backup before extraction.</p>
                 <input type="file" accept=".zip,application/zip" onChange={(event) => setRestoreFile(event.target.files?.[0] || null)} />
                 {restoreFile && <p className="help-text">Selected: {restoreFile.name}</p>}
                 <button className="secondary-button danger-button" type="button" onClick={restoreBackup}>Restore selected .zip</button>

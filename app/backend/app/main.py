@@ -402,13 +402,22 @@ def create_data_zip() -> bytes:
     buffer = io.BytesIO()
     excluded_roots = {"backups", "cache"}
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        manifest = {
+            "app": "Family Planner / Finances",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "contains_sensitive_config": ENV_PATH.exists(),
+            "restore_notes": "Clone the GitHub repo, copy .env.example to .env if needed, then restore this zip from Settings > Backup & Restore or scripts.",
+        }
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2))
         for path in sorted(DATA_DIR.rglob("*")):
             if path.is_dir():
                 continue
             relative = path.relative_to(DATA_DIR)
             if relative.parts and relative.parts[0] in excluded_roots:
                 continue
-            archive.write(path, relative.as_posix())
+            archive.write(path, f"data/{relative.as_posix()}")
+        if ENV_PATH.exists():
+            archive.write(ENV_PATH, "config/.env")
     return buffer.getvalue()
 
 
@@ -427,13 +436,25 @@ def restore_data_zip(content: bytes) -> tuple[list[str], str]:
         restored: list[str] = []
         for member in members:
             relative = safe_backup_member(member.filename)
+            if relative.name == "manifest.json":
+                continue
             if relative.parts and relative.parts[0] in {"backups", "cache"}:
                 continue
-            target = DATA_DIR / relative
+            if relative.parts and relative.parts[0] == "config" and relative.name == ".env":
+                target = ENV_PATH
+                restore_name = ".env"
+            elif relative.parts and relative.parts[0] == "data":
+                target = DATA_DIR / Path(*relative.parts[1:])
+                restore_name = target.relative_to(DATA_DIR).as_posix()
+            else:
+                # Backward compatibility with older backups that stored data files at the zip root.
+                target = DATA_DIR / relative
+                restore_name = relative.as_posix()
             target.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(member) as source, target.open("wb") as destination:
                 shutil.copyfileobj(source, destination)
-            restored.append(relative.as_posix())
+            restored.append(restore_name)
+    load_dotenv(ENV_PATH, override=True)
     return restored, safety_backup
 
 

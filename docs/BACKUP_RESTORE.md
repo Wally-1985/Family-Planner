@@ -1,29 +1,50 @@
 # Backup and Restore Guide
 
-The app is local-first. To move it to another computer, back up the `data/` directory and the private `.env` file separately.
+The app is local-first. The GitHub repo contains the application code; the backup zip contains the private runtime data/config needed to recreate your running system on another computer.
 
-## What to back up
+## What the UI backup includes
 
-Back up:
+**Settings → Backup & Restore → Download full .zip backup** includes:
 
-```text
-data/
-.env
+- `data/*.sqlite3` local databases
+- `data/*.json` app settings, profile settings, field settings, etc.
+- `data/uploads/` if present
+- `config/.env` copied from the server `.env`, when present
+- `manifest.json` with backup metadata
+
+This backup can contain financial data, SharePoint/AI/SMTP secrets, Administrator PINs, and reset email addresses. Store it securely and do not commit it to GitHub.
+
+## Move to another computer using GitHub + backup
+
+1. Clone the app code:
+
+```bash
+git clone git@github.com:Wally-1985/Family-Planner.git finances-app
+cd finances-app
 ```
 
-Do **not** commit either to GitHub. They can contain financial data and secrets.
+2. Start the app once:
 
-## Create a data backup
+```bash
+cp .env.example .env
+mkdir -p data/cache data/uploads data/backups
+docker compose up -d --build
+```
 
-### In the app UI
+3. Open the app in the browser.
+4. Go to **Settings → Backup & Restore**.
+5. Upload the full backup `.zip` and click **Restore selected .zip**.
+6. Restart the app so restored `.env` settings are active:
 
-Open **Settings → Backup & Restore** and click **Download .zip backup**.
+```bash
+docker compose restart
+```
 
-This downloads a zip containing the local app data files from `data/`. It does not include `.env` secrets.
+The restore creates a safety backup before overwriting local data/config.
 
-### From the command line
+## Command-line backup
 
-From the repo root:
+The command-line script backs up `data/` only. Use the UI backup for full migration including `.env`.
 
 ```bash
 ./scripts/backup-data.sh
@@ -35,68 +56,21 @@ This creates a file like:
 data/backups/finances-data-20260519-133000.tar.gz
 ```
 
-Copy that backup file somewhere safe, plus a separate copy of `.env`.
-
-## Restore data on another computer
-
-### In the app UI
-
-1. Install and start the app on the new computer using `docs/DEPLOYMENT.md`.
-2. Open **Settings → Backup & Restore**.
-3. Choose the downloaded `.zip` backup.
-4. Click **Restore selected .zip**.
-5. Copy your private `.env` separately if SharePoint/AI credentials are needed.
-
-The backend creates a safety backup before restoring.
-
-### From the command line
-
-1. Install the app on the new computer using `docs/DEPLOYMENT.md`.
-2. Copy your backup tarball onto the new computer.
-3. Restore it from the repo root:
+## Command-line restore
 
 ```bash
 ./scripts/restore-data.sh /path/to/finances-data-YYYYMMDD-HHMMSS.tar.gz
 ```
 
-4. Copy your private `.env` file into the repo root:
+If restoring a UI full backup manually, extract:
+
+- `data/*` into `./data/`
+- `config/.env` to `./.env`
+
+Then restart:
 
 ```bash
-cp /path/to/your/.env .env
-```
-
-5. Start the app:
-
-```bash
-docker compose up -d --build
-```
-
-## Manual backup alternative
-
-If you prefer not to use the script:
-
-```bash
-tar --exclude='backups' --exclude='cache' -czf finances-data.tar.gz -C data .
-```
-
-Restore manually:
-
-```bash
-mkdir -p data
-tar -xzf finances-data.tar.gz -C data
-```
-
-## Before a restore
-
-The restore script automatically creates a safety backup of the existing `data/` folder before it extracts the new backup.
-
-Still, if the existing server has important data, stop the app first:
-
-```bash
-docker compose down
-./scripts/backup-data.sh
-./scripts/restore-data.sh /path/to/new-backup.tar.gz
-docker compose up -d --build
+docker compose restart
 ```
 
 ## Backup frequency recommendation
