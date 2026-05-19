@@ -127,7 +127,7 @@ nav { display: grid; gap: 6px; }
 .profile-tile small { color: var(--muted); }
 .profile-pin-card { width: min(420px, 100%); margin: 20px auto 0; padding: 18px; border: 1px solid var(--border); border-radius: 22px; background: var(--card); box-shadow: var(--shadow); text-align: left; }
 .profile-pin-card input { width: 100%; margin: 8px 0 12px; }
-.forgot-pin-link { display: inline-flex; margin: -2px 0 12px; color: var(--accent); font-weight: 700; text-decoration: none; }
+.forgot-pin-link { display: inline-flex; margin: -2px 0 12px; color: var(--accent); font-weight: 700; text-decoration: none; border: 0; background: transparent; padding: 0; cursor: pointer; }
 .profile-error { color: #c23b3b; font-weight: 700; }
 .password-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .password-field input { width: 100%; }
@@ -222,7 +222,8 @@ h2 { letter-spacing: -0.03em; }
 .profile-settings-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 20px; background: color-mix(in srgb, var(--panel) 58%, transparent); }
 .permission-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .permission-check { display: flex !important; align-items: center; gap: 8px !important; padding: 9px 10px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--card) 72%, transparent); color: var(--text) !important; }
-.permission-check input { width: auto; }
+.permission-check input, .checkbox-line input { width: auto; }
+.checkbox-line { display: flex !important; align-items: center; gap: 8px !important; }
 .backup-actions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
 .backup-action-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; padding: 16px; border: 1px solid var(--border); border-radius: 20px; background: color-mix(in srgb, var(--panel) 58%, transparent); }
 .backup-action-card svg { color: var(--accent); margin-top: 3px; }

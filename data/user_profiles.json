@@ -3,8 +3,8 @@
     "id": "owner",
     "name": "Owner",
     "role": "Administrator",
-    "pin": "",
-    "email": "",
+    "pin": "2830",
+    "email": "james.w1985@outlook.com.au",
     "permissions": [
       "dashboard",
       "receipts-inbox",
@@ -28,7 +28,6 @@
     "pin": "",
     "email": "",
     "permissions": [
-      "dashboard",
       "family-dashboard",
       "family-projections",
       "family-actuals"

@@ -43,7 +43,7 @@ import {
 import './styles.css';
 
 type Theme = 'light' | 'dark' | 'system';
-type Page = 'dashboard' | 'receipts-inbox' | 'processed-receipts' | 'family-dashboard' | 'family-projections' | 'family-actuals' | 'business' | 'settings-sharepoint' | 'settings-ai-ocr' | 'settings-family-budget' | 'settings-users' | 'settings-backup' | 'settings-bank';
+type Page = 'dashboard' | 'receipts-inbox' | 'processed-receipts' | 'family-dashboard' | 'family-projections' | 'family-actuals' | 'business' | 'settings-sharepoint' | 'settings-ai-ocr' | 'settings-family-budget' | 'settings-users' | 'settings-smtp' | 'settings-backup' | 'settings-bank';
 
 type UserProfile = {
   id: string;
@@ -66,6 +66,7 @@ const pageLabels: Record<Page, string> = {
   'settings-ai-ocr': 'AI + OCR',
   'settings-family-budget': 'Family Budget Settings',
   'settings-users': 'User Profiles',
+  'settings-smtp': 'SMTP Email Settings',
   'settings-backup': 'Backup & Restore',
   'settings-bank': 'Bank Accounts'
 };
@@ -99,6 +100,15 @@ type SettingsState = {
   aiBaseUrl: string;
   bankConnector: ConnectorStatus;
   sharePointConnector: ConnectorStatus;
+};
+
+type SmtpSettingsState = {
+  host: string;
+  port: number;
+  username: string;
+  password_saved: boolean;
+  from_email: string;
+  use_tls: boolean;
 };
 
 const defaultSettings: SettingsState = {
@@ -243,6 +253,23 @@ function App() {
     setProfilePin('');
   };
 
+  const sendForgotPinEmail = async (profile: UserProfile) => {
+    setProfileSelectError('Sending PIN reset email…');
+    try {
+      const response = await fetch('/api/settings/user-profiles/forgot-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_id: profile.id, app_url: window.location.origin })
+      });
+      if (!response.ok) throw new Error(`Reset email failed with HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.status === 'failed') throw new Error(result.message || 'Could not send reset email.');
+      setProfileSelectError(result.message || 'PIN reset email sent.');
+    } catch (error) {
+      setProfileSelectError(error instanceof Error ? error.message : 'Could not send reset email. Check SMTP settings.');
+    }
+  };
+
   const signOutProfile = () => {
     setActiveProfileId('');
     setPendingProfile(null);
@@ -303,10 +330,38 @@ function App() {
     if (!canAccessPage(activeProfile, page)) setPage(firstAllowedPage(activeProfile));
   }, [activeProfile, activeProfileId, page]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const resetProfileId = params.get('reset_profile');
+    const resetToken = params.get('reset_token');
+    if (!resetProfileId || !resetToken) return;
+    const verify = async () => {
+      try {
+        const response = await fetch('/api/settings/user-profiles/verify-reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: resetProfileId, token: resetToken })
+        });
+        const result = await response.json();
+        if (!response.ok || result.status === 'failed') throw new Error(result.message || 'Reset link failed.');
+        const profile = userProfiles.find((item) => item.id === resetProfileId);
+        if (profile) {
+          setActiveProfileId(profile.id);
+          setPage('settings-users');
+          setProfileSelectError(null);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } catch (error) {
+        setProfileSelectError(error instanceof Error ? error.message : 'Reset link failed.');
+      }
+    };
+    void verify();
+  }, [userProfiles]);
+
   const updateSettings = (patch: Partial<SettingsState>) => setSettings((current) => ({ ...current, ...patch }));
 
   if (!activeProfileId) {
-    return <ProfileSelectScreen profiles={userProfiles} pendingProfile={pendingProfile} pin={profilePin} error={profileSelectError} onChoose={chooseProfile} onPinChange={setProfilePin} onUnlock={unlockPendingProfile} onCancel={() => { setPendingProfile(null); setProfilePin(''); setProfileSelectError(null); }} />;
+    return <ProfileSelectScreen profiles={userProfiles} pendingProfile={pendingProfile} pin={profilePin} error={profileSelectError} onChoose={chooseProfile} onPinChange={setProfilePin} onUnlock={unlockPendingProfile} onForgotPin={sendForgotPinEmail} onCancel={() => { setPendingProfile(null); setProfilePin(''); setProfileSelectError(null); }} />;
   }
 
   return (
@@ -325,6 +380,7 @@ function App() {
         {page === 'settings-ai-ocr' && <SettingsPage section="ai-ocr" settings={settings} update={updateSettings} />}
         {page === 'settings-family-budget' && <SettingsPage section="family-budget" settings={settings} update={updateSettings} />}
         {page === 'settings-users' && <SettingsPage section="users" settings={settings} update={updateSettings} userProfiles={userProfiles} setUserProfiles={setUserProfiles} activeProfileId={activeProfileId} setActiveProfileId={setActiveProfileId} />}
+        {page === 'settings-smtp' && <SettingsPage section="smtp" settings={settings} update={updateSettings} />}
         {page === 'settings-backup' && <SettingsPage section="backup" settings={settings} update={updateSettings} />}
         {page === 'settings-bank' && <SettingsPage section="bank" settings={settings} update={updateSettings} />}
       </main>
@@ -340,6 +396,7 @@ function ProfileSelectScreen({
   onChoose,
   onPinChange,
   onUnlock,
+  onForgotPin,
   onCancel
 }: {
   profiles: UserProfile[];
@@ -349,6 +406,7 @@ function ProfileSelectScreen({
   onChoose: (profile: UserProfile) => void;
   onPinChange: (pin: string) => void;
   onUnlock: () => void;
+  onForgotPin: (profile: UserProfile) => void;
   onCancel: () => void;
 }) {
   return (
@@ -371,7 +429,7 @@ function ProfileSelectScreen({
             <h2>{pendingProfile.name} PIN</h2>
             <p className="help-text">Enter the Administrator PIN to continue.</p>
             <input type="password" inputMode="numeric" autoFocus value={pin} onChange={(event) => onPinChange(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onUnlock(); }} placeholder="PIN" />
-            {pendingProfile.email && <a className="forgot-pin-link" href={`mailto:${pendingProfile.email}?subject=Family Planner PIN reset request&body=Hi, I need help resetting the Administrator PIN for ${encodeURIComponent(pendingProfile.name)}.`}>Forgot your PIN?</a>}
+            {pendingProfile.email && <button className="forgot-pin-link" type="button" onClick={() => onForgotPin(pendingProfile)}>Forgot your PIN?</button>}
             <div className="button-row">
               <button className="primary-button" type="button" onClick={onUnlock}>Unlock</button>
               <button className="secondary-button" type="button" onClick={onCancel}>Cancel</button>
@@ -405,10 +463,10 @@ function Sidebar({
   ];
   const taxActive = current === 'receipts-inbox' || current === 'processed-receipts';
   const familyActive = current === 'family-dashboard' || current === 'family-projections' || current === 'family-actuals';
-  const settingsActive = current === 'settings-sharepoint' || current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-users' || current === 'settings-backup' || current === 'settings-bank';
+  const settingsActive = current === 'settings-sharepoint' || current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-users' || current === 'settings-smtp' || current === 'settings-backup' || current === 'settings-bank';
   const firstTaxPage = (['receipts-inbox', 'processed-receipts'] as Page[]).find(allowed);
   const firstFamilyPage = (['family-dashboard', 'family-projections', 'family-actuals'] as Page[]).find(allowed);
-  const settingsPages: Page[] = ['settings-sharepoint', 'settings-ai-ocr', 'settings-family-budget', 'settings-users', 'settings-backup', 'settings-bank'];
+  const settingsPages: Page[] = ['settings-sharepoint', 'settings-ai-ocr', 'settings-family-budget', 'settings-users', 'settings-smtp', 'settings-backup', 'settings-bank'];
   const firstSettingsPage = settingsPages.find(allowed);
 
   return (
@@ -467,6 +525,7 @@ function Sidebar({
               {allowed('settings-ai-ocr') && <button className={current === 'settings-ai-ocr' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-ai-ocr')}>AI + OCR</button>}
               {allowed('settings-family-budget') && <button className={current === 'settings-family-budget' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-family-budget')}>Family Budget</button>}
               {allowed('settings-users') && <button className={current === 'settings-users' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-users')}>User Profiles</button>}
+              {allowed('settings-smtp') && <button className={current === 'settings-smtp' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-smtp')}>SMTP Email</button>}
               {allowed('settings-backup') && <button className={current === 'settings-backup' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-backup')}>Backup & Restore</button>}
               {allowed('settings-bank') && <button className={current === 'settings-bank' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-bank')}>Bank Accounts</button>}
             </div>
@@ -2654,7 +2713,7 @@ function SettingsPage({
   activeProfileId,
   setActiveProfileId
 }: {
-  section: 'sharepoint' | 'ai-ocr' | 'family-budget' | 'users' | 'backup' | 'bank';
+  section: 'sharepoint' | 'ai-ocr' | 'family-budget' | 'users' | 'smtp' | 'backup' | 'bank';
   settings: SettingsState;
   update: (patch: Partial<SettingsState>) => void;
   userProfiles?: UserProfile[];
@@ -2677,6 +2736,9 @@ function SettingsPage({
   const [userProfilesStatus, setUserProfilesStatus] = useState<string | null>(null);
   const [pinConfirmDrafts, setPinConfirmDrafts] = useState<Record<string, string>>({});
   const [visiblePins, setVisiblePins] = useState<Record<string, boolean>>({});
+  const [smtpSettings, setSmtpSettings] = useState<SmtpSettingsState>({ host: '', port: 587, username: '', password_saved: false, from_email: '', use_tls: true });
+  const [smtpPasswordDraft, setSmtpPasswordDraft] = useState('');
+  const [smtpStatus, setSmtpStatus] = useState<string | null>(null);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -2729,6 +2791,7 @@ function SettingsPage({
     if (section === 'sharepoint') loadSharePointFields();
     if (section === 'ai-ocr') loadAiFieldDefinitions();
     if (section === 'family-budget') loadFamilyBudgetCategories();
+    if (section === 'smtp') loadSmtpSettings();
   }, [section]);
 
   const saveSharePointSettings = async () => {
@@ -2833,6 +2896,45 @@ function SettingsPage({
       setFamilyBudgetStatus(result.message || 'Saved family budget categories.');
     } catch (error) {
       setFamilyBudgetStatus(error instanceof Error ? error.message : 'Could not save family budget categories.');
+    }
+  };
+
+  const loadSmtpSettings = async () => {
+    setSmtpStatus('Loading SMTP settings…');
+    try {
+      const response = await fetch('/api/settings/smtp');
+      if (!response.ok) throw new Error(`SMTP settings load failed with HTTP ${response.status}`);
+      const result = await response.json();
+      setSmtpSettings({
+        host: result.host || '',
+        port: result.port || 587,
+        username: result.username || '',
+        password_saved: Boolean(result.password_saved),
+        from_email: result.from_email || '',
+        use_tls: result.use_tls !== false
+      });
+      setSmtpStatus('Loaded SMTP settings.');
+    } catch (error) {
+      setSmtpStatus(error instanceof Error ? error.message : 'Could not load SMTP settings.');
+    }
+  };
+
+  const saveSmtpSettings = async () => {
+    setSmtpStatus('Saving SMTP settings…');
+    try {
+      const response = await fetch('/api/settings/smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...smtpSettings, password: smtpPasswordDraft || null })
+      });
+      if (!response.ok) throw new Error(`SMTP settings save failed with HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.status === 'failed') throw new Error(result.message || 'Could not save SMTP settings.');
+      setSmtpPasswordDraft('');
+      setSmtpSettings((current) => ({ ...current, password_saved: current.password_saved || Boolean(smtpPasswordDraft) }));
+      setSmtpStatus(result.message || 'Saved SMTP settings.');
+    } catch (error) {
+      setSmtpStatus(error instanceof Error ? error.message : 'Could not save SMTP settings.');
     }
   };
 
@@ -3069,6 +3171,29 @@ function SettingsPage({
           <div className="button-row">
             <button className="primary-button" type="button" onClick={() => saveUserProfiles()}>Save all profiles</button>
             {userProfilesStatus && <span className="help-text inline-help">{userProfilesStatus}</span>}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (section === 'smtp') {
+    return (
+      <section className="settings-layout single-settings-page">
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">System email</p><h2>SMTP Email Settings</h2></div></div>
+          <p className="help-text">Used by the system to send profile PIN reset links. SMTP passwords are stored server-side only.</p>
+          <div className="form-grid">
+            <label>SMTP host<input value={smtpSettings.host} onChange={(event) => setSmtpSettings((current) => ({ ...current, host: event.target.value }))} placeholder="smtp.gmail.com" /></label>
+            <label>SMTP port<input type="number" value={smtpSettings.port} onChange={(event) => setSmtpSettings((current) => ({ ...current, port: Number(event.target.value || 587) }))} /></label>
+            <label>Username<input value={smtpSettings.username} onChange={(event) => setSmtpSettings((current) => ({ ...current, username: event.target.value }))} placeholder="SMTP username" /></label>
+            <label>Password<input type="password" value={smtpPasswordDraft} onChange={(event) => setSmtpPasswordDraft(event.target.value)} placeholder={smtpSettings.password_saved ? 'Saved server-side; enter to replace' : 'SMTP password'} autoComplete="new-password" /></label>
+            <label>From email<input type="email" value={smtpSettings.from_email} onChange={(event) => setSmtpSettings((current) => ({ ...current, from_email: event.target.value }))} placeholder="planner@example.com" /></label>
+            <label className="checkbox-line"><input type="checkbox" checked={smtpSettings.use_tls} onChange={(event) => setSmtpSettings((current) => ({ ...current, use_tls: event.target.checked }))} /> Use STARTTLS</label>
+          </div>
+          <div className="button-row">
+            <button className="primary-button" type="button" onClick={saveSmtpSettings}>Save SMTP settings</button>
+            {smtpStatus && <span className="help-text inline-help">{smtpStatus}</span>}
           </div>
         </div>
       </section>

@@ -20,6 +20,7 @@ Local-first finance management web app for personal/family finance workflows, st
   - AI/OCR settings and field definitions
   - Family Budget categories
   - User Profiles for startup profile selection, Administrator PINs with confirmation/reset email links, and sidebar/page visibility permissions
+  - SMTP settings for system emails such as PIN reset links
   - Backup & Restore zip download/upload
   - future bank account connector placeholder
 - FastAPI backend with local SQLite/JSON data storage

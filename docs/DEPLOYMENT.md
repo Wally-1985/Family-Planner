@@ -82,6 +82,8 @@ If exposing this outside the LAN, put it behind HTTPS and authentication first. 
 
 Settings → User Profiles controls which sidebar areas are visible to each local profile, but it is not full server-side authentication. Treat it as local convenience access control until backend auth/API permission checks are added.
 
+Settings → SMTP Email stores server-side SMTP details used for system emails such as Administrator PIN reset links. Use an app password or dedicated SMTP credential rather than a primary mailbox password.
+
 ## Data location
 
 All portable application data lives under:

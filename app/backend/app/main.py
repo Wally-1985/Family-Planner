@@ -3,14 +3,17 @@ from __future__ import annotations
 import io
 import json
 import os
+import secrets
 import shutil
+import smtplib
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from enum import Enum
 from typing import Any, Literal
 from urllib import error, parse, request
@@ -116,6 +119,39 @@ class UserProfilesResponse(BaseModel):
 
 class UserProfilesUpdate(BaseModel):
     profiles: list[UserProfile] = Field(default_factory=list)
+
+
+class SmtpSettings(BaseModel):
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password_saved: bool = False
+    from_email: str = ""
+    use_tls: bool = True
+
+
+class SmtpSettingsUpdate(BaseModel):
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password: SecretStr | None = None
+    from_email: str = ""
+    use_tls: bool = True
+
+
+class ForgotPinRequest(BaseModel):
+    profile_id: str
+    app_url: str = ""
+
+
+class ResetTokenVerifyRequest(BaseModel):
+    profile_id: str
+    token: str
+
+
+class ActionResponse(BaseModel):
+    status: Literal["ok", "failed"] = "ok"
+    message: str
 
 
 class SharePointTestResponse(BaseModel):
@@ -330,6 +366,7 @@ FIELD_DEFINITIONS_PATH = DATA_DIR / "ai_field_definitions.json"
 SHAREPOINT_FIELD_SETTINGS_PATH = DATA_DIR / "sharepoint_field_settings.json"
 BACKUP_DIR = DATA_DIR / "backups"
 USER_PROFILES_PATH = DATA_DIR / "user_profiles.json"
+PIN_RESET_TOKENS_PATH = DATA_DIR / "pin_reset_tokens.json"
 
 DEFAULT_PAGE_PERMISSIONS = [
     "dashboard",
@@ -417,6 +454,79 @@ def save_user_profiles(profiles: list[UserProfile]) -> list[UserProfile]:
     ]
     USER_PROFILES_PATH.write_text(json.dumps(clean_profiles, indent=2))
     return [UserProfile(**profile) for profile in clean_profiles]
+
+
+def smtp_settings() -> SmtpSettings:
+    return SmtpSettings(
+        host=env("SMTP_HOST"),
+        port=int(env("SMTP_PORT", "587") or "587"),
+        username=env("SMTP_USERNAME"),
+        password_saved=bool(env("SMTP_PASSWORD")),
+        from_email=env("SMTP_FROM_EMAIL"),
+        use_tls=env("SMTP_USE_TLS", "true").lower() not in {"false", "0", "no"},
+    )
+
+
+def read_pin_reset_tokens() -> dict[str, dict[str, str]]:
+    if not PIN_RESET_TOKENS_PATH.exists():
+        return {}
+    try:
+        return json.loads(PIN_RESET_TOKENS_PATH.read_text() or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def write_pin_reset_tokens(tokens: dict[str, dict[str, str]]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PIN_RESET_TOKENS_PATH.write_text(json.dumps(tokens, indent=2))
+
+
+def send_email(to_email: str, subject: str, body: str) -> None:
+    settings = smtp_settings()
+    missing = [name for name, value in {"SMTP_HOST": settings.host, "SMTP_FROM_EMAIL": settings.from_email}.items() if not value]
+    if missing:
+        raise ValueError(f"SMTP is not configured. Missing: {', '.join(missing)}")
+    message = EmailMessage()
+    message["From"] = settings.from_email
+    message["To"] = to_email
+    message["Subject"] = subject
+    message.set_content(body)
+    with smtplib.SMTP(settings.host, settings.port, timeout=20) as server:
+        if settings.use_tls:
+            server.starttls()
+        if settings.username or env("SMTP_PASSWORD"):
+            server.login(settings.username, env("SMTP_PASSWORD"))
+        server.send_message(message)
+
+
+def create_pin_reset_link(profile: UserProfile, app_url: str) -> str:
+    token = secrets.token_urlsafe(32)
+    tokens = read_pin_reset_tokens()
+    tokens[profile.id] = {
+        "token": token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+    }
+    write_pin_reset_tokens(tokens)
+    base_url = app_url.rstrip("/") or "http://localhost:5174"
+    return f"{base_url}/?reset_profile={parse.quote(profile.id)}&reset_token={parse.quote(token)}"
+
+
+def consume_pin_reset_token(profile_id: str, token: str) -> bool:
+    tokens = read_pin_reset_tokens()
+    record = tokens.get(profile_id)
+    if not record or record.get("token") != token:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(record.get("expires_at", ""))
+    except ValueError:
+        return False
+    if expires_at < datetime.now(timezone.utc):
+        tokens.pop(profile_id, None)
+        write_pin_reset_tokens(tokens)
+        return False
+    tokens.pop(profile_id, None)
+    write_pin_reset_tokens(tokens)
+    return True
 
 
 def update_env_file(updates: dict[str, str]) -> None:
@@ -873,6 +983,55 @@ def update_user_profiles(update: UserProfilesUpdate) -> UserProfilesResponse:
         return UserProfilesResponse(message=f"Saved {len(profiles)} user profile{'s' if len(profiles) != 1 else ''}.", profiles=profiles)
     except Exception as exc:
         return UserProfilesResponse(status="failed", message=f"Could not save user profiles: {exc}")
+
+
+@app.get("/api/settings/smtp", response_model=SmtpSettings)
+def read_smtp_settings() -> SmtpSettings:
+    return smtp_settings()
+
+
+@app.post("/api/settings/smtp", response_model=ActionResponse)
+def save_smtp_settings(update: SmtpSettingsUpdate) -> ActionResponse:
+    updates = {
+        "SMTP_HOST": update.host,
+        "SMTP_PORT": str(update.port or 587),
+        "SMTP_USERNAME": update.username,
+        "SMTP_FROM_EMAIL": update.from_email,
+        "SMTP_USE_TLS": "true" if update.use_tls else "false",
+    }
+    if update.password is not None and update.password.get_secret_value():
+        updates["SMTP_PASSWORD"] = update.password.get_secret_value()
+    update_env_file(updates)
+    load_dotenv(ENV_PATH, override=True)
+    return ActionResponse(message="SMTP settings saved to server-side .env.")
+
+
+@app.post("/api/settings/user-profiles/forgot-pin", response_model=ActionResponse)
+def forgot_pin(request_body: ForgotPinRequest) -> ActionResponse:
+    try:
+        profile = next((item for item in get_user_profiles() if item.id == request_body.profile_id), None)
+        if not profile:
+            return ActionResponse(status="failed", message="Profile not found.")
+        if profile.role != "Administrator" or not profile.pin:
+            return ActionResponse(status="failed", message="This profile does not have an Administrator PIN to reset.")
+        if not profile.email:
+            return ActionResponse(status="failed", message="No reset email address is configured for this profile.")
+        reset_link = create_pin_reset_link(profile, request_body.app_url)
+        send_email(
+            profile.email,
+            "Family Planner PIN reset",
+            f"A PIN reset was requested for {profile.name}.\n\nOpen this one-time link within 1 hour to sign in and reset the PIN in Settings > User Profiles:\n\n{reset_link}\n\nIf you did not request this, ignore this email.",
+        )
+        return ActionResponse(message=f"PIN reset email sent to {profile.email}.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=f"Could not send reset email: {exc}")
+
+
+@app.post("/api/settings/user-profiles/verify-reset", response_model=ActionResponse)
+def verify_pin_reset(request_body: ResetTokenVerifyRequest) -> ActionResponse:
+    if consume_pin_reset_token(request_body.profile_id, request_body.token):
+        return ActionResponse(message="Reset link verified. You can now update the PIN in Settings > User Profiles.")
+    return ActionResponse(status="failed", message="Reset link is invalid or expired.")
 
 
 @app.get("/api/settings/connectors", response_model=ConnectorSettings)
