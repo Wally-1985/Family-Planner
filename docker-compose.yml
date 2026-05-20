@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: finances
+      POSTGRES_USER: finances
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finances"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   frontend:
     build: ./app/frontend
     ports:
@@ -18,9 +33,10 @@ services:
     environment:
       DATA_DIR: /data
       ENV_PATH: /data/.env.runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
-# PostgreSQL and Redis are intentionally not required yet. The current app stores
-# local application data in ./data/*.sqlite3 and JSON settings files so backup and
-# migration are simple. Add database services later only when the backend actually
-# starts using them.
+volumes:
+  postgres_data:

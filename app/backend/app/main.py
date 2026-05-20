@@ -30,6 +30,19 @@ from .models import (
     ChoreCreate,
     ChoresResponse,
     ChoreUpdate,
+    Task,
+    SubTask,
+    SubTaskCreate,
+    SubTaskUpdate,
+    SubTasksResponse,
+    TaskCreate,
+    TasksResponse,
+    TaskDoneUpdate,
+    TaskUpdate,
+    RosterItem,
+    RosterItemCreate,
+    RosterItemUpdate,
+    RosterResponse,
     ConnectorSettings,
     ConnectorStatus,
     FamilyBudgetCategoriesResponse,
@@ -65,6 +78,10 @@ from .models import (
     UserProfilesUpdate,
 )
 from .db import (
+    get_subtasks,
+    create_subtask,
+    update_subtask as update_subtask_db,
+    delete_subtask,
     DATA_DIR,
     ENV_PATH,
     BACKUP_DIR,
@@ -78,6 +95,15 @@ from .db import (
     get_budget_categories,
     get_budget_items,
     get_chores,
+    get_tasks,
+    get_roster,
+    create_roster_item,
+    update_roster_item,
+    delete_roster_item,
+    create_task,
+    set_task_done,
+    update_task,
+    delete_task,
     get_draft,
     get_savings_accounts,
     get_user_profiles,
@@ -96,11 +122,23 @@ from .db import (
     write_ai_field_definitions,
     write_pin_reset_tokens,
     write_sharepoint_field_settings,
+    get_smtp_config,
+    get_sharepoint_config,
+    get_ai_config,
+    get_frontend_settings,
+    save_frontend_settings,
+    reorder_roster_items,
+    init_db,
 )
 
 load_dotenv(ENV_PATH)
 
 app = FastAPI(title="Finances API", version="0.1.0")
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -116,13 +154,14 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 def smtp_settings() -> SmtpSettings:
+    cfg = get_smtp_config()
     return SmtpSettings(
-        host=env("SMTP_HOST"),
-        port=int(env("SMTP_PORT", "587") or "587"),
-        username=env("SMTP_USERNAME"),
-        password_saved=bool(env("SMTP_PASSWORD")),
-        from_email=env("SMTP_FROM_EMAIL"),
-        use_tls=env("SMTP_USE_TLS", "true").lower() not in {"false", "0", "no"},
+        host=cfg.get("host", ""),
+        port=int(cfg.get("port") or 587),
+        username=cfg.get("username", ""),
+        password_saved=bool(cfg.get("password")),
+        from_email=cfg.get("from_email", ""),
+        use_tls=str(cfg.get("use_tls", "true")).lower() not in {"false", "0", "no"},
     )
 
 
@@ -139,8 +178,9 @@ def send_email(to_email: str, subject: str, body: str) -> None:
     with smtplib.SMTP(settings.host, settings.port, timeout=20) as server:
         if settings.use_tls:
             server.starttls()
-        if settings.username or env("SMTP_PASSWORD"):
-            server.login(settings.username, env("SMTP_PASSWORD"))
+        smtp_cfg = get_smtp_config()
+        if settings.username or smtp_cfg.get("password"):
+            server.login(settings.username, smtp_cfg.get("password", ""))
         server.send_message(message)
 
 
@@ -246,11 +286,12 @@ def restore_data_zip(content: bytes) -> tuple[list[str], str]:
 # ---------------------------------------------------------------------------
 
 def graph_token() -> str:
-    token_url = f"https://login.microsoftonline.com/{parse.quote(env('MS_TENANT_ID'))}/oauth2/v2.0/token"
+    cfg = get_sharepoint_config()
+    token_url = f"https://login.microsoftonline.com/{parse.quote(cfg.get('tenant_id', ''))}/oauth2/v2.0/token"
     body = parse.urlencode(
         {
-            "client_id": env("MS_CLIENT_ID"),
-            "client_secret": env("MS_CLIENT_SECRET"),
+            "client_id": cfg.get("client_id", ""),
+            "client_secret": cfg.get("client_secret", ""),
             "scope": "https://graph.microsoft.com/.default",
             "grant_type": "client_credentials",
         }
@@ -344,26 +385,28 @@ def site_graph_path(site_url: str) -> str:
 
 
 def sharepoint_target() -> SharePointGraphSettings:
+    cfg = get_sharepoint_config()
     return SharePointGraphSettings(
-        tenant_domain=env("MS_TENANT_DOMAIN"),
-        tenant_id=env("MS_TENANT_ID"),
-        client_id=env("MS_CLIENT_ID"),
-        client_secret_saved=bool(env("MS_CLIENT_SECRET")),
-        client_secret_expires_on=env("MS_CLIENT_SECRET_EXPIRES_ON"),
-        site_url=env("SHAREPOINT_SITE_URL"),
-        site_id=env("SHAREPOINT_SITE_ID"),
-        drive_id=env("SHAREPOINT_DRIVE_ID"),
-        library_name=env("SHAREPOINT_DOCUMENT_LIBRARY", "Documents"),
-        input_folder=env("SHAREPOINT_INPUT_FOLDER", "Inbox"),
-        output_folder=env("SHAREPOINT_OUTPUT_FOLDER", "Processed/FY2025-2026"),
+        tenant_domain=cfg.get("tenant_domain", ""),
+        tenant_id=cfg.get("tenant_id", ""),
+        client_id=cfg.get("client_id", ""),
+        client_secret_saved=bool(cfg.get("client_secret")),
+        client_secret_expires_on=cfg.get("client_secret_expires_on", ""),
+        site_url=cfg.get("site_url", ""),
+        site_id=cfg.get("site_id", ""),
+        drive_id=cfg.get("drive_id", ""),
+        library_name=cfg.get("library_name", "Documents"),
+        input_folder=cfg.get("input_folder", "Inbox"),
+        output_folder=cfg.get("output_folder", "Processed/FY2025-2026"),
     )
 
 
 def required_sharepoint_settings(target: SharePointGraphSettings) -> dict[str, str]:
+    cfg = get_sharepoint_config()
     return {
         "MS_TENANT_ID": target.tenant_id,
         "MS_CLIENT_ID": target.client_id,
-        "MS_CLIENT_SECRET": env("MS_CLIENT_SECRET"),
+        "MS_CLIENT_SECRET": cfg.get("client_secret", ""),
         "SHAREPOINT_SITE_URL": target.site_url,
         "SHAREPOINT_DOCUMENT_LIBRARY": target.library_name,
         "SHAREPOINT_INPUT_FOLDER": target.input_folder,
@@ -681,12 +724,13 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
 
 
 def ai_extract_fields(file_name: str, ocr_text: str, fields: list[SharePointFieldDefinition]) -> tuple[dict[str, Any], float | None]:
-    api_key = env("AI_API_KEY")
+    ai_cfg = get_ai_config()
+    api_key = ai_cfg.get("api_key", "")
     if not api_key:
         raise RuntimeError("AI_API_KEY is not configured. OCR text was saved, but AI extraction could not run.")
     system_prompt, user_prompt = build_ai_prompt(file_name, ocr_text, fields)
     body = {
-        "model": env("AI_MODEL", "gpt-4o-mini"),
+        "model": ai_cfg.get("model", "gpt-4o-mini"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -695,7 +739,7 @@ def ai_extract_fields(file_name: str, ocr_text: str, fields: list[SharePointFiel
         "response_format": {"type": "json_object"},
     }
     req = request.Request(
-        env("AI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/chat/completions",
+        ai_cfg.get("base_url", "https://api.openai.com/v1").rstrip("/") + "/chat/completions",
         data=json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         method="POST",
@@ -887,8 +931,7 @@ def save_smtp_settings(update: SmtpSettingsUpdate) -> ActionResponse:
     if update.password is not None and update.password.get_secret_value():
         updates["SMTP_PASSWORD"] = update.password.get_secret_value()
     update_env_file(updates)
-    load_dotenv(ENV_PATH, override=True)
-    return ActionResponse(message="SMTP settings saved to server-side .env.")
+    return ActionResponse(message="SMTP settings saved.")
 
 
 @app.post("/api/settings/user-profiles/forgot-pin", response_model=ActionResponse)
@@ -921,28 +964,30 @@ def verify_pin_reset(request_body: ResetTokenVerifyRequest) -> ActionResponse:
 
 @app.get("/api/settings/connectors", response_model=ConnectorSettings)
 def connector_settings() -> ConnectorSettings:
+    sp = get_sharepoint_config()
+    ai = get_ai_config()
     sharepoint = SharePointGraphSettings(
-        tenant_domain=env("MS_TENANT_DOMAIN"),
-        tenant_id=env("MS_TENANT_ID"),
-        client_id=env("MS_CLIENT_ID"),
-        client_secret_saved=bool(env("MS_CLIENT_SECRET")),
-        client_secret_expires_on=env("MS_CLIENT_SECRET_EXPIRES_ON"),
-        site_url=env("SHAREPOINT_SITE_URL"),
-        site_id=env("SHAREPOINT_SITE_ID"),
-        drive_id=env("SHAREPOINT_DRIVE_ID"),
-        library_name=env("SHAREPOINT_DOCUMENT_LIBRARY", "Documents"),
-        input_folder=env("SHAREPOINT_INPUT_FOLDER", "Inbox"),
-        output_folder=env("SHAREPOINT_OUTPUT_FOLDER", "Processed/FY2025-2026"),
+        tenant_domain=sp.get("tenant_domain", ""),
+        tenant_id=sp.get("tenant_id", ""),
+        client_id=sp.get("client_id", ""),
+        client_secret_saved=bool(sp.get("client_secret")),
+        client_secret_expires_on=sp.get("client_secret_expires_on", ""),
+        site_url=sp.get("site_url", ""),
+        site_id=sp.get("site_id", ""),
+        drive_id=sp.get("drive_id", ""),
+        library_name=sp.get("library_name", "Documents"),
+        input_folder=sp.get("input_folder", "Inbox"),
+        output_folder=sp.get("output_folder", "Processed/FY2025-2026"),
         status=ConnectorStatus.ready
-        if env("MS_TENANT_ID") and env("MS_CLIENT_ID") and env("SHAREPOINT_SITE_URL")
+        if sp.get("tenant_id") and sp.get("client_id") and sp.get("site_url")
         else ConnectorStatus.not_connected,
     )
     return ConnectorSettings(
         sharepoint=sharepoint,
-        ai_provider=env("AI_PROVIDER", "OpenAI"),
-        ai_model=env("AI_MODEL", "gpt-4o-mini"),
-        ai_base_url=env("AI_BASE_URL", "https://api.openai.com/v1"),
-        ai_api_key_saved=bool(env("AI_API_KEY")),
+        ai_provider=ai.get("provider", "OpenAI"),
+        ai_model=ai.get("model", "gpt-4o-mini"),
+        ai_base_url=ai.get("base_url", "https://api.openai.com/v1"),
+        ai_api_key_saved=bool(ai.get("api_key")),
     )
 
 
@@ -1370,3 +1415,149 @@ def save_ai_field_definitions_route(update: AiFieldDefinitionsUpdate) -> AiField
 @app.get("/api/tax-receipts/summary", response_model=ReceiptSummary)
 def tax_receipts_summary() -> ReceiptSummary:
     return ReceiptSummary()
+
+
+@app.get("/api/tasks", response_model=TasksResponse)
+def read_tasks() -> TasksResponse:
+    try:
+        tasks = [Task(**row) for row in get_tasks()]
+        return TasksResponse(status="ok", message=f"{len(tasks)} task{'s' if len(tasks) != 1 else ''}.", tasks=tasks)
+    except Exception as exc:
+        return TasksResponse(status="failed", message=str(exc))
+
+
+@app.post("/api/tasks", response_model=TasksResponse)
+def add_task(body: TaskCreate) -> TasksResponse:
+    try:
+        create_task(body.model_dump())
+        tasks = [Task(**row) for row in get_tasks()]
+        return TasksResponse(status="ok", message="Task added.", tasks=tasks)
+    except Exception as exc:
+        return TasksResponse(status="failed", message=str(exc))
+
+
+@app.patch("/api/tasks/{task_id}/done", response_model=ActionResponse)
+def patch_task_done(task_id: str, body: TaskDoneUpdate) -> ActionResponse:
+    try:
+        found = set_task_done(task_id, body.done)
+        return ActionResponse(message="Updated." if found else "Task not found.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))
+
+
+@app.patch("/api/tasks/{task_id}", response_model=ActionResponse)
+def patch_task(task_id: str, body: TaskUpdate) -> ActionResponse:
+    try:
+        found = update_task(task_id, body.model_dump(exclude_none=True))
+        return ActionResponse(message="Saved." if found else "Task not found.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))
+
+
+@app.delete("/api/tasks/{task_id}", response_model=ActionResponse)
+def remove_task(task_id: str) -> ActionResponse:
+    try:
+        found = delete_task(task_id)
+        return ActionResponse(message="Deleted." if found else "Task not found.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))
+
+
+@app.get("/api/tasks/{task_id}/subtasks", response_model=SubTasksResponse)
+def read_subtasks(task_id: str) -> SubTasksResponse:
+    try:
+        subtasks = [SubTask(**s) for s in get_subtasks(task_id)]
+        return SubTasksResponse(subtasks=subtasks, message=f"{len(subtasks)} subtask(s).")
+    except Exception as exc:
+        return SubTasksResponse(status="failed", message=str(exc))
+
+
+@app.post("/api/tasks/{task_id}/subtasks", response_model=SubTasksResponse)
+def add_subtask(task_id: str, body: SubTaskCreate) -> SubTasksResponse:
+    try:
+        create_subtask(task_id, body.model_dump())
+        subtasks = [SubTask(**s) for s in get_subtasks(task_id)]
+        return SubTasksResponse(subtasks=subtasks, message="Subtask added.")
+    except Exception as exc:
+        return SubTasksResponse(status="failed", message=str(exc))
+
+
+@app.patch("/api/subtasks/{subtask_id}", response_model=ActionResponse)
+def patch_subtask(subtask_id: str, body: SubTaskUpdate) -> ActionResponse:
+    try:
+        found = update_subtask_db(subtask_id, body.model_dump(exclude_none=True))
+        return ActionResponse(message="Updated." if found else "Subtask not found.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))
+
+
+@app.delete("/api/subtasks/{subtask_id}", response_model=ActionResponse)
+def remove_subtask(subtask_id: str) -> ActionResponse:
+    try:
+        found = delete_subtask(subtask_id)
+        return ActionResponse(message="Deleted." if found else "Subtask not found.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))
+
+
+@app.get("/api/roster", response_model=RosterResponse)
+def read_roster() -> RosterResponse:
+    try:
+        items = [RosterItem(**row) for row in get_roster()]
+        return RosterResponse(status="ok", message=f"{len(items)} item{'s' if len(items) != 1 else ''}.", items=items)
+    except Exception as exc:
+        return RosterResponse(status="failed", message=str(exc))
+
+
+@app.post("/api/roster", response_model=RosterResponse)
+def add_roster_item(body: RosterItemCreate) -> RosterResponse:
+    try:
+        create_roster_item(body.model_dump())
+        items = [RosterItem(**row) for row in get_roster()]
+        return RosterResponse(status="ok", message="Added.", items=items)
+    except Exception as exc:
+        return RosterResponse(status="failed", message=str(exc))
+
+
+@app.patch("/api/roster/{item_id}", response_model=ActionResponse)
+def patch_roster_item(item_id: str, body: RosterItemUpdate) -> ActionResponse:
+    try:
+        found = update_roster_item(item_id, body.model_dump(exclude_none=True))
+        return ActionResponse(message="Saved." if found else "Item not found.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))
+
+
+@app.delete("/api/roster/{item_id}", response_model=ActionResponse)
+def remove_roster_item(item_id: str) -> ActionResponse:
+    try:
+        found = delete_roster_item(item_id)
+        return ActionResponse(message="Deleted." if found else "Item not found.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))
+
+
+
+@app.get("/api/settings/app")
+def read_app_settings() -> dict:
+    try:
+        return {"status": "ok", "settings": get_frontend_settings()}
+    except Exception as exc:
+        return {"status": "failed", "message": str(exc)}
+
+
+@app.put("/api/settings/app")
+def write_app_settings(body: dict) -> dict:
+    try:
+        save_frontend_settings(body)
+        return {"status": "ok"}
+    except Exception as exc:
+        return {"status": "failed", "message": str(exc)}
+
+@app.post("/api/roster/reorder", response_model=ActionResponse)
+def reorder_roster(order: list[str]) -> ActionResponse:
+    try:
+        reorder_roster_items(order)
+        return ActionResponse(message="Reordered.")
+    except Exception as exc:
+        return ActionResponse(status="failed", message=str(exc))

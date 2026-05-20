@@ -23,7 +23,7 @@ import {
 import { Dashboard } from './pages/Dashboard';
 import { TaxReceipts, ProcessedReceipts } from './pages/TaxReceipts';
 import { FamilyBudget, FamilyBudgetDashboard, ActualCostsPage } from './pages/FamilyBudget';
-import { ChoresPage } from './pages/Chores';
+import { TodoPage, TaskManagementPage } from './pages/Todo';
 import { SettingsPage } from './pages/Settings';
 import { ComingSoon } from './components/ComingSoon';
 
@@ -122,6 +122,21 @@ function App() {
   }, [settings, effectiveTheme]);
 
   useEffect(() => {
+    const loadAppSettings = async () => {
+      try {
+        const response = await fetch('/api/settings/app');
+        if (!response.ok) return;
+        const result = await response.json();
+        if (result.status === 'ok' && result.settings && typeof result.settings === 'object') {
+          setSettings((c) => ({ ...c, ...result.settings }));
+          localStorage.setItem('finances.settings', JSON.stringify({ ...readSettings(), ...result.settings }));
+        }
+      } catch { /* keep localStorage value */ }
+    };
+    void loadAppSettings();
+  }, []);
+
+  useEffect(() => {
     const loadProfiles = async () => {
       try {
         const response = await fetch('/api/settings/user-profiles');
@@ -168,7 +183,21 @@ function App() {
     void verify();
   }, [userProfiles]);
 
-  const updateSettings = (patch: Partial<SettingsState>) => setSettings((c) => ({ ...c, ...patch }));
+  const updateSettings = (patch: Partial<SettingsState>) => {
+    setSettings((c) => {
+      const next = { ...c, ...patch };
+      // Debounced API save
+      clearTimeout((updateSettings as unknown as { _t?: ReturnType<typeof setTimeout> })._t);
+      (updateSettings as unknown as { _t?: ReturnType<typeof setTimeout> })._t = setTimeout(() => {
+        fetch('/api/settings/app', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(next),
+        }).catch(() => {});
+      }, 800);
+      return next;
+    });
+  };
 
   if (!activeProfileId) {
     return (
@@ -197,14 +226,13 @@ function App() {
         {page === 'family-dashboard' && <FamilyBudgetDashboard />}
         {page === 'family-projections' && <FamilyBudget />}
         {page === 'family-actuals' && <ActualCostsPage />}
-        {page === 'chores' && <ChoresPage activeProfile={activeProfile} />}
+        {page === 'todo' && <TodoPage activeProfile={activeProfile} userProfiles={userProfiles} />}
+        {page === 'todo-manage' && <TaskManagementPage activeProfile={activeProfile} userProfiles={userProfiles} />}
         {page === 'business' && <ComingSoon title="Business budgets" icon={<BriefcaseBusiness />} />}
-        {page === 'settings-sharepoint' && <SettingsPage section="sharepoint" settings={settings} update={updateSettings} />}
         {page === 'settings-ai-ocr' && <SettingsPage section="ai-ocr" settings={settings} update={updateSettings} />}
         {page === 'settings-family-budget' && <SettingsPage section="family-budget" settings={settings} update={updateSettings} />}
         {page === 'settings-users' && <SettingsPage section="users" settings={settings} update={updateSettings} userProfiles={userProfiles} setUserProfiles={setUserProfiles} activeProfileId={activeProfileId} setActiveProfileId={setActiveProfileId} />}
-        {page === 'settings-smtp' && <SettingsPage section="smtp" settings={settings} update={updateSettings} />}
-        {page === 'settings-backup' && <SettingsPage section="backup" settings={settings} update={updateSettings} />}
+        {page === 'settings-general' && <SettingsPage section="general" settings={settings} update={updateSettings} />}
         {page === 'settings-bank' && <SettingsPage section="bank" settings={settings} update={updateSettings} />}
       </main>
     </div>
@@ -229,16 +257,18 @@ function ProfileSelectScreen({
       <section className="profile-select-panel">
         <p className="eyebrow">Family Planner</p>
         <h1>Who's using the app?</h1>
-        <p className="help-text">Choose a profile to continue. Administrator profiles may require a PIN.</p>
-        <div className="profile-tile-grid">
-          {profiles.map((profile) => (
-            <button className="profile-tile" type="button" key={profile.id} onClick={() => onChoose(profile)}>
-              <span className="profile-avatar">{profile.name.slice(0, 1).toUpperCase()}</span>
-              <strong>{profile.name}</strong>
-              <small>{profile.role}{profile.role === 'Administrator' && profile.pin ? ' · PIN required' : ''}</small>
-            </button>
-          ))}
-        </div>
+        {!pendingProfile && <p className="help-text">Choose a profile to continue. Administrator profiles may require a PIN.</p>}
+        {!pendingProfile && (
+          <div className="profile-tile-grid">
+            {profiles.map((profile) => (
+              <button className="profile-tile" type="button" key={profile.id} onClick={() => onChoose(profile)}>
+                <span className="profile-avatar">{profile.name.slice(0, 1).toUpperCase()}</span>
+                <strong>{profile.name}</strong>
+                <small>{profile.role}{profile.role === 'Administrator' && profile.pin ? ' · PIN required' : ''}</small>
+              </button>
+            ))}
+          </div>
+        )}
         {pendingProfile && (
           <div className="profile-pin-card">
             <h2>{pendingProfile.name} PIN</h2>
@@ -270,10 +300,10 @@ function Sidebar({
   const allowed = (page: Page) => canAccessPage(activeProfile, page);
   const taxActive = current === 'receipts-inbox' || current === 'processed-receipts';
   const familyActive = current === 'family-dashboard' || current === 'family-projections' || current === 'family-actuals';
-  const settingsActive = current === 'settings-sharepoint' || current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-users' || current === 'settings-smtp' || current === 'settings-backup' || current === 'settings-bank';
+  const settingsActive = current === 'settings-ai-ocr' || current === 'settings-family-budget' || current === 'settings-users' || current === 'settings-general' || current === 'settings-bank';
   const firstTaxPage = (['receipts-inbox', 'processed-receipts'] as Page[]).find(allowed);
   const firstFamilyPage = (['family-dashboard', 'family-projections', 'family-actuals'] as Page[]).find(allowed);
-  const settingsPages: Page[] = ['settings-sharepoint', 'settings-ai-ocr', 'settings-family-budget', 'settings-users', 'settings-smtp', 'settings-backup', 'settings-bank'];
+  const settingsPages: Page[] = ['settings-general', 'settings-ai-ocr', 'settings-family-budget', 'settings-users', 'settings-bank'];
   const firstSettingsPage = settingsPages.find(allowed);
 
   return (
@@ -316,10 +346,17 @@ function Sidebar({
             )}
           </div>
         )}
-        {allowed('chores') && (
-          <button className={current === 'chores' ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate('chores')} title={collapsed ? 'Chores' : undefined}>
-            <ClipboardList size={18} /><span>Chores</span>
-          </button>
+        {(allowed('todo') || allowed('todo-manage')) && (
+          <div className={current === 'todo' || current === 'todo-manage' ? 'nav-group active' : 'nav-group'}>
+            <button className={current === 'todo' || current === 'todo-manage' ? 'active nav-item' : 'nav-item'} onClick={() => allowed('todo') ? onNavigate('todo') : onNavigate('todo-manage')} title={collapsed ? 'To Do' : undefined}>
+              <ClipboardList size={18} /><span>To Do</span>
+            </button>
+            {!collapsed && (
+              <div className="nav-subitems">
+                {allowed('todo-manage') && <button className={current === 'todo-manage' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('todo-manage')}>Task Management</button>}
+              </div>
+            )}
+          </div>
         )}
         {allowed('business') && (
           <button className={current === 'business' ? 'active nav-item' : 'nav-item'} onClick={() => onNavigate('business')} title={collapsed ? 'Business budgets' : undefined}>
@@ -333,22 +370,16 @@ function Sidebar({
             </button>
             {!collapsed && (
               <div className="nav-subitems">
-                {allowed('settings-sharepoint') && <button className={current === 'settings-sharepoint' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-sharepoint')}>SharePoint Library Settings</button>}
+                {allowed('settings-general') && <button className={current === 'settings-general' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-general')}>General</button>}
                 {allowed('settings-ai-ocr') && <button className={current === 'settings-ai-ocr' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-ai-ocr')}>AI + OCR</button>}
                 {allowed('settings-family-budget') && <button className={current === 'settings-family-budget' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-family-budget')}>Family Budget</button>}
                 {allowed('settings-users') && <button className={current === 'settings-users' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-users')}>User Profiles</button>}
-                {allowed('settings-smtp') && <button className={current === 'settings-smtp' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-smtp')}>SMTP Email</button>}
-                {allowed('settings-backup') && <button className={current === 'settings-backup' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-backup')}>Backup & Restore</button>}
                 {allowed('settings-bank') && <button className={current === 'settings-bank' ? 'active nav-subitem' : 'nav-subitem'} onClick={() => onNavigate('settings-bank')}>Bank Accounts</button>}
               </div>
             )}
           </div>
         )}
       </nav>
-      <div className="sidebar-note">
-        <ShieldCheck size={18} />
-        <span>Local-first. Review before SharePoint writes.</span>
-      </div>
       {!collapsed && <div className="sidebar-resizer" onPointerDown={onResizeStart} aria-label="Resize sidebar" />}
     </aside>
   );
