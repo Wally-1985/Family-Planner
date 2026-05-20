@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import json
 import secrets
-import shutil
 import smtplib
 import subprocess
 import sys
@@ -214,34 +213,37 @@ def consume_pin_reset_token(profile_id: str, token: str) -> bool:
     return True
 
 
-def safe_backup_member(name: str) -> Path:
-    member = Path(name)
-    if member.is_absolute() or ".." in member.parts or not name.strip():
-        raise ValueError(f"Unsafe backup path: {name}")
-    return member
+_BACKUP_TABLES = [
+    "receipt_drafts",
+    "family_budget_items",
+    "savings_accounts",
+    "family_budget_categories",
+    "actual_cost_transactions",
+    "chores",
+    "tasks",
+    "subtasks",
+    "roster_items",
+    "user_profiles",
+    "app_settings",
+]
 
 
 def create_data_zip() -> bytes:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    from .db import get_conn
     buffer = io.BytesIO()
-    excluded_roots = {"backups", "cache"}
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         manifest = {
             "app": "Family Planner / Finances",
+            "format": "postgres-json-v1",
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "contains_sensitive_config": ENV_PATH.exists(),
-            "restore_notes": "Clone the GitHub repo, copy .env.example to .env if needed, then restore this zip from Settings > Backup & Restore or scripts.",
+            "tables": _BACKUP_TABLES,
+            "restore_notes": "Restore from Settings > Backup & Restore. Data loads directly into PostgreSQL.",
         }
         archive.writestr("manifest.json", json.dumps(manifest, indent=2))
-        for path in sorted(DATA_DIR.rglob("*")):
-            if path.is_dir():
-                continue
-            relative = path.relative_to(DATA_DIR)
-            if relative.parts and relative.parts[0] in excluded_roots:
-                continue
-            archive.write(path, f"data/{relative.as_posix()}")
-        if ENV_PATH.exists():
-            archive.write(ENV_PATH, "config/.env")
+        with get_conn() as conn:
+            for table in _BACKUP_TABLES:
+                rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+                archive.writestr(f"db/{table}.json", json.dumps(rows, default=str, indent=2))
     return buffer.getvalue()
 
 
@@ -252,33 +254,63 @@ def write_safety_backup() -> str:
     return str(backup_path)
 
 
+def _pg_columns(conn, table: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = %s AND table_schema = 'public' ORDER BY ordinal_position",
+        (table,),
+    ).fetchall()
+    return [r["column_name"] for r in rows]
+
+
 def restore_data_zip(content: bytes) -> tuple[list[str], str]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    safety_backup = write_safety_backup()
+    from .db import get_conn
+    safety_backup_path = ""
+    try:
+        safety_backup_path = write_safety_backup()
+    except Exception:
+        pass  # don't block restore if safety backup fails
+
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        members = [member for member in archive.infolist() if not member.is_dir()]
+        names = {m.filename for m in archive.infolist() if not m.is_dir()}
+        manifest_raw = archive.read("manifest.json") if "manifest.json" in names else b"{}"
+        manifest = json.loads(manifest_raw)
+        fmt = manifest.get("format", "")
+
+        if fmt != "postgres-json-v1":
+            raise ValueError(
+                "This backup was created before the PostgreSQL migration and cannot be restored here. "
+                "Contact the administrator to manually restore legacy backups."
+            )
+
         restored: list[str] = []
-        for member in members:
-            relative = safe_backup_member(member.filename)
-            if relative.name == "manifest.json":
-                continue
-            if relative.parts and relative.parts[0] in {"backups", "cache"}:
-                continue
-            if relative.parts and relative.parts[0] == "config" and relative.name == ".env":
-                target = ENV_PATH
-                restore_name = ".env"
-            elif relative.parts and relative.parts[0] == "data":
-                target = DATA_DIR / Path(*relative.parts[1:])
-                restore_name = target.relative_to(DATA_DIR).as_posix()
-            else:
-                target = DATA_DIR / relative
-                restore_name = relative.as_posix()
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(member) as source, target.open("wb") as destination:
-                shutil.copyfileobj(source, destination)
-            restored.append(restore_name)
-    load_dotenv(ENV_PATH, override=True)
-    return restored, safety_backup
+        with get_conn() as conn:
+            for table in _BACKUP_TABLES:
+                fname = f"db/{table}.json"
+                if fname not in names:
+                    continue
+                rows: list[dict] = json.loads(archive.read(fname))
+                if not rows:
+                    restored.append(f"{table} (0 rows)")
+                    continue
+                pg_cols = _pg_columns(conn, table)
+                common = [c for c in pg_cols if c in rows[0]]
+                if not common:
+                    continue
+                # Determine primary key (first column by convention matches table def)
+                conflict_col = "item_id" if table == "receipt_drafts" else ("name" if table == "family_budget_categories" else "id")
+                ph = ", ".join(["%s"] * len(common))
+                col_str = ", ".join(common)
+                upd = ", ".join(f"{c} = EXCLUDED.{c}" for c in common if c != conflict_col)
+                if upd:
+                    sql = f"INSERT INTO {table} ({col_str}) VALUES ({ph}) ON CONFLICT ({conflict_col}) DO UPDATE SET {upd}"
+                else:
+                    sql = f"INSERT INTO {table} ({col_str}) VALUES ({ph}) ON CONFLICT ({conflict_col}) DO NOTHING"
+                for row in rows:
+                    conn.execute(sql, [row.get(c) for c in common])
+                restored.append(f"{table} ({len(rows)} rows)")
+
+    return restored, safety_backup_path
 
 
 # ---------------------------------------------------------------------------
