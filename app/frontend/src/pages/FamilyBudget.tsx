@@ -269,10 +269,7 @@ export function buildProjectedCategorySummaryForRange(expenses: BudgetItem[], fr
     const category = item.category || 'Uncategorised';
     totals.set(category, (totals.get(category) || 0) + projectedTotal);
   });
-  const sorted = Array.from(totals, ([category, yearly]) => ({ category, yearly })).sort((a, b) => b.yearly - a.yearly);
-  const top = sorted.slice(0, 8);
-  const other = sorted.slice(8).reduce((sum, i) => sum + i.yearly, 0);
-  return other > 0 ? [...top, { category: 'Other', yearly: other }] : top;
+  return Array.from(totals, ([category, yearly]) => ({ category, yearly })).sort((a, b) => b.yearly - a.yearly);
 }
 
 export function buildActualComparisonData(items: BudgetItem[], actuals: ActualCostTransaction[], days: number): Array<{ category: string; projected: number; actual: number }> {
@@ -697,6 +694,7 @@ export function FamilyBudget() {
   const [editingBudgetItem, setEditingBudgetItem] = useState<BudgetItem | null>(null);
   const [modalKind, setModalKind] = useState<BudgetKind | null>(null);
   const [selectedBudgetItem, setSelectedBudgetItem] = useState<BudgetItem | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedProjectionWeek, setSelectedProjectionWeek] = useState<ReturnType<typeof buildBudgetProjectionForRange>[number] | null>(null);
   const [editingSavingsAccount, setEditingSavingsAccount] = useState<SavingsAccount | null>(null);
   const budgetLeftColumnRef = useRef<HTMLDivElement>(null);
@@ -877,9 +875,9 @@ export function FamilyBudget() {
             <div className="category-chart-container category-list-panel">
               <p className="eyebrow">Categories</p>
               <ul className="category-scroll-list">
-                {categoryPieSummary.map((item, index) => (
-                  <li key={item.category}>
-                    <span className="category-list-swatch" style={{ background: item.category === 'Unallocated' ? '#94a3b8' : categoryChartColors[index % categoryChartColors.length] }} />
+                {categorySummary.map((item, index) => (
+                  <li key={item.category} className="clickable-row" onClick={() => setSelectedCategory(item.category)}>
+                    <span className="category-list-swatch" style={{ background: categoryChartColors[index % categoryChartColors.length] }} />
                     <span className="category-list-name">{item.category}</span>
                     <span className="category-list-amount">{formatMoney(item.yearly)}</span>
                   </li>
@@ -921,6 +919,17 @@ export function FamilyBudget() {
 
       {selectedProjectionWeek && <ProjectionWeekModal week={selectedProjectionWeek} onClose={() => setSelectedProjectionWeek(null)} />}
       {selectedBudgetItem && <BudgetItemDetailModal item={selectedBudgetItem} totalAnnualExpense={totalAnnualExpense} onClose={() => setSelectedBudgetItem(null)} />}
+      {selectedCategory && (
+        <CategoryDetailModal
+          category={selectedCategory}
+          items={items.filter((i) => i.kind === 'expense' && (i.category || 'Uncategorised') === selectedCategory)}
+          projectionFrom={projectionRange.from}
+          projectionTo={projectionRange.to}
+          totalCategorySpend={categorySummary.find((c) => c.category === selectedCategory)?.yearly ?? 0}
+          totalExpenses={scheduledTotals.expenses}
+          onClose={() => setSelectedCategory(null)}
+        />
+      )}
       {editingBudgetItem && modalKind && <BudgetItemModal kind={modalKind} item={editingBudgetItem} categories={expenseCategories} onSave={saveBudgetItem} onClose={() => { setEditingBudgetItem(null); setModalKind(null); }} />}
       {editingSavingsAccount && <SavingsAccountModal account={editingSavingsAccount} onSave={saveSavingsAccount} onClose={() => setEditingSavingsAccount(null)} />}
     </section>
@@ -989,6 +998,85 @@ function SavingsAccountsCard({ accounts, status, onAdd, onEdit, onDelete }: { ac
           </div>
         ))}
         {!accounts.length && <p className="help-text">Add each savings account here so balances are tracked separately.</p>}
+      </div>
+    </div>
+  );
+}
+
+
+function CategoryDetailModal({ category, items, projectionFrom, projectionTo, totalCategorySpend, totalExpenses, onClose }: {
+  category: string;
+  items: BudgetItem[];
+  projectionFrom: Date;
+  projectionTo: Date;
+  totalCategorySpend: number;
+  totalExpenses: number;
+  onClose: () => void;
+}) {
+  const rows = items.map((item) => {
+    const occ = occurrenceDatesBetween(item, projectionFrom, projectionTo).length;
+    const total = occ * item.amount;
+    return { item, occ, total };
+  }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total);
+
+  const yearly = rows.reduce((sum, r) => sum + annualizedBudgetAmount(r.item), 0);
+  const monthly = yearly / 12;
+  const pctOfAll = totalExpenses > 0 ? (totalCategorySpend / totalExpenses) * 100 : 0;
+
+  const pieData = rows.map((r) => ({ name: r.item.name, value: r.total }));
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal-card budget-modal category-detail-modal">
+        <div className="card-header">
+          <div><p className="eyebrow">Category</p><h2>{category}</h2></div>
+          <button className="secondary-button" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="detail-summary-grid">
+          <MetricCard title="Range total" value={formatMoney(totalCategorySpend)} detail="Projected for this range" icon={<WalletCards />} />
+          <MetricCard title="Monthly avg" value={formatMoney(monthly)} detail="Annualised" icon={<WalletCards />} />
+          <MetricCard title="% of expenses" value={`${pctOfAll.toFixed(1)}%`} detail="Share of all projected expenses" icon={<BarChart3 />} />
+          <MetricCard title="Items" value={String(rows.length)} detail={`expense item${rows.length === 1 ? '' : 's'} in category`} icon={<ReceiptText />} />
+        </div>
+        <div className="category-detail-body">
+          <div className="table-wrap budget-table-wrap">
+            <table>
+              <thead><tr><th>Item</th><th>Supplier</th><th>Rule</th><th>Occurrences</th><th>Per occurrence</th><th>Range total</th></tr></thead>
+              <tbody>
+                {rows.map(({ item, occ, total }) => (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.supplier || '—'}</td>
+                    <td>{budgetRuleLabel(item)}</td>
+                    <td>{formatNumber(occ)}</td>
+                    <td>{formatMoney(item.amount)}</td>
+                    <td>{formatMoney(total)}</td>
+                  </tr>
+                ))}
+                {!rows.length && <tr><td colSpan={6}>No items are scheduled in this range for this category.</td></tr>}
+              </tbody>
+              {rows.length > 1 && (
+                <tfoot><tr><td colSpan={5}>Category total</td><td>{formatMoney(totalCategorySpend)}</td></tr></tfoot>
+              )}
+            </table>
+          </div>
+          {pieData.length > 0 && (
+            <div className="category-detail-pie">
+              <p className="eyebrow">Item share of category</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Tooltip formatter={(v) => formatMoney(Number(v))} />
+                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={80}
+                    label={(e) => `${e.name} ${((e.percent || 0) * 100).toFixed(0)}%`}>
+                    {pieData.map((entry, index) => (
+                      <Cell key={entry.name} fill={categoryChartColors[index % categoryChartColors.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
