@@ -874,8 +874,19 @@ export function FamilyBudget() {
           <div className="category-charts-grid">
             <div className="category-chart-container"><p className="eyebrow">Spend by category</p><div className="category-chart-wrap"><ResponsiveContainer width="100%" height={230}><BarChart data={categorySummary} layout="vertical" margin={{ left: 8, right: 18, top: 8, bottom: 8 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" tickFormatter={(v) => formatMoney(Number(v))} /><YAxis type="category" dataKey="category" width={94} /><Tooltip formatter={(v) => formatMoney(Number(v))} /><Bar dataKey="yearly" fill="var(--accent)" radius={[0, 8, 8, 0]} /></BarChart></ResponsiveContainer></div></div>
             <div className="category-chart-container"><p className="eyebrow">Category share</p><div className="category-chart-wrap"><ResponsiveContainer width="100%" height={230}><PieChart><Tooltip formatter={(v) => formatMoney(Number(v))} /><Pie data={categoryPieSummary} dataKey="yearly" nameKey="category" cx="50%" cy="50%" innerRadius={46} outerRadius={82} label={(e) => `${e.category} ${((e.percent || 0) * 100).toFixed(0)}%`}>{categoryPieSummary.map((item, index) => <Cell key={item.category} fill={item.category === 'Unallocated' ? '#94a3b8' : categoryChartColors[index % categoryChartColors.length]} />)}</Pie></PieChart></ResponsiveContainer></div></div>
+            <div className="category-chart-container category-list-panel">
+              <p className="eyebrow">Categories</p>
+              <ul className="category-scroll-list">
+                {categoryPieSummary.map((item, index) => (
+                  <li key={item.category}>
+                    <span className="category-list-swatch" style={{ background: item.category === 'Unallocated' ? '#94a3b8' : categoryChartColors[index % categoryChartColors.length] }} />
+                    <span className="category-list-name">{item.category}</span>
+                    <span className="category-list-amount">{formatMoney(item.yearly)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
-          <div className="category-chip-row">{categoryPieSummary.map((item, index) => <span key={item.category}><i style={{ background: item.category === 'Unallocated' ? '#94a3b8' : categoryChartColors[index % categoryChartColors.length] }} />{item.category}: {formatMoney(item.yearly)}</span>)}</div>
         </div>
       </div>
 
