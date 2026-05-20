@@ -8,14 +8,13 @@ export type Page =
   | 'family-dashboard'
   | 'family-projections'
   | 'family-actuals'
-  | 'chores'
+  | 'todo'
+  | 'todo-manage'
   | 'business'
-  | 'settings-sharepoint'
   | 'settings-ai-ocr'
   | 'settings-family-budget'
   | 'settings-users'
-  | 'settings-smtp'
-  | 'settings-backup'
+  | 'settings-general'
   | 'settings-bank';
 
 export type UserProfile = {
@@ -34,14 +33,13 @@ export const pageLabels: Record<Page, string> = {
   'family-dashboard': 'Family Budget',
   'family-projections': 'Projections',
   'family-actuals': 'Actual Costs',
-  chores: 'Chores',
+  'todo': 'To Do List',
+  'todo-manage': 'Task Management',
   business: 'Business budgets',
-  'settings-sharepoint': 'SharePoint Library Settings',
   'settings-ai-ocr': 'AI + OCR',
   'settings-family-budget': 'Family Budget Settings',
   'settings-users': 'User Profiles',
-  'settings-smtp': 'SMTP Email Settings',
-  'settings-backup': 'Backup & Restore',
+  'settings-general': 'General',
   'settings-bank': 'Bank Accounts'
 };
 
@@ -49,7 +47,7 @@ export const allPermissionPages = Object.keys(pageLabels) as Page[];
 
 export const defaultUserProfiles: UserProfile[] = [
   { id: 'owner', name: 'Owner', role: 'Administrator', pin: '', email: '', permissions: allPermissionPages },
-  { id: 'family', name: 'Family', role: 'User', pin: '', email: '', permissions: ['dashboard', 'family-dashboard', 'family-projections', 'family-actuals', 'chores'] }
+  { id: 'family', name: 'Family', role: 'User', pin: '', email: '', permissions: ['dashboard', 'family-dashboard', 'family-projections', 'family-actuals', 'todo', 'todo-manage'] }
 ];
 
 export const firstAllowedPage = (profile: UserProfile | undefined): Page =>
@@ -62,6 +60,7 @@ export type ConnectorStatus = 'not-connected' | 'ready' | 'needs-review';
 
 export type SettingsState = {
   theme: Theme;
+  timezone: string;
   sharePointTenant: string;
   sharePointTenantId: string;
   sharePointClientId: string;
@@ -90,6 +89,7 @@ export type SmtpSettingsState = {
 
 export const defaultSettings: SettingsState = {
   theme: 'system',
+  timezone: 'Australia/Brisbane',
   sharePointTenant: '',
   sharePointTenantId: '',
   sharePointClientId: '',
@@ -230,13 +230,53 @@ export type CsvMapping = {
   account: string;
 };
 
-export type Chore = {
+export type TaskSchedule = 'once-off' | 'recurring' | 'random' | 'weekdays';
+
+export type Task = {
   id: string;
   title: string;
   description: string;
-  assigned_to: string;
+  assigned_to: string[];
   added_by: string;
+  schedule: TaskSchedule;
+  interval_count: number;
+  interval_unit: 'day' | 'week' | 'month' | 'year';
+  anchor_date: string;
+  days_of_month: number[];
+  months: number[];
+  due_dates: string[];
+  due_date: string;
+  end_date: string;
+  rule_note: string;
+  is_template: boolean;
+  template_id: string;
   done: boolean;
+  done_date: string;
+  created_at: string;
+};
+
+export type SubTask = {
+  id: string;
+  task_id: string;
+  title: string;
+  done: boolean;
+  sort_order: number;
+  assigned_to: string[];
+  created_at: string;
+};
+
+export type RosterScheduleType = 'daily' | 'every-n-days' | 'weekdays';
+
+export type RosterItem = {
+  id: string;
+  name: string;
+  description: string;
+  profile_ids: string[];
+  start_date: string;
+  schedule_type: RosterScheduleType;
+  interval: number;
+  weekdays: number[];
+  sort_order: number;
   created_at: string;
 };
 

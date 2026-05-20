@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, Moon, Settings, Sun, Upload } from 'lucide-react';
+import { Download, Moon, Settings, Sun, Upload, ChevronUp, ChevronDown } from 'lucide-react';
 import type {
   AiFieldDefinition, Page, SettingsState, SharePointFieldDefinition, SmtpSettingsState, UserProfile
 } from '../types';
@@ -27,7 +27,7 @@ export function SettingsPage({
   activeProfileId,
   setActiveProfileId
 }: {
-  section: 'sharepoint' | 'ai-ocr' | 'family-budget' | 'users' | 'smtp' | 'backup' | 'bank';
+  section: 'general' | 'ai-ocr' | 'family-budget' | 'users' | 'bank';
   settings: SettingsState;
   update: (patch: Partial<SettingsState>) => void;
   userProfiles?: UserProfile[];
@@ -115,10 +115,10 @@ export function SettingsPage({
   };
 
   useEffect(() => {
-    if (section === 'sharepoint') loadSharePointFields();
+    if (section === 'sharepoint' || section === 'general') loadSharePointFields();
     if (section === 'ai-ocr') loadAiFieldDefinitions();
     if (section === 'family-budget') loadFamilyBudgetCategories();
-    if (section === 'smtp') loadSmtpSettings();
+    if (section === 'smtp' || section === 'general') loadSmtpSettings();
   }, [section]);
 
   const saveSharePointSettings = async () => {
@@ -377,6 +377,16 @@ export function SettingsPage({
     const updateProfile = (profileId: string, patch: Partial<UserProfile>) => {
       setUserProfiles?.((c) => c.map((p) => p.id === profileId ? { ...p, ...patch } : p));
     };
+
+    const moveProfile = (idx: number, dir: -1 | 1) => {
+      setUserProfiles?.((c) => {
+        const next = [...c];
+        const swapIdx = idx + dir;
+        if (swapIdx < 0 || swapIdx >= next.length) return c;
+        [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+        return next;
+      });
+    };
     const togglePermission = (profileId: string, permission: Page) => {
       setUserProfiles?.((c) => c.map((p) => {
         if (p.id !== profileId) return p;
@@ -421,6 +431,8 @@ export function SettingsPage({
                   ))}
                 </div>
                 <div className="button-row">
+                  <button className="secondary-button icon-btn" type="button" onClick={() => moveProfile(userProfiles.indexOf(profile), -1)} disabled={userProfiles.indexOf(profile) === 0} aria-label="Move up"><ChevronUp size={15} /></button>
+                  <button className="secondary-button icon-btn" type="button" onClick={() => moveProfile(userProfiles.indexOf(profile), 1)} disabled={userProfiles.indexOf(profile) === userProfiles.length - 1} aria-label="Move down"><ChevronDown size={15} /></button>
                   <button className="secondary-button" type="button" onClick={() => saveUserProfiles()}>Save profiles</button>
                   <button className="secondary-button danger-button" type="button" onClick={() => deleteProfile(profile.id)}>Delete profile</button>
                 </div>
@@ -439,6 +451,102 @@ export function SettingsPage({
   if (section === 'smtp') {
     return (
       <section className="settings-layout single-settings-page">
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">System email</p><h2>SMTP Email Settings</h2></div></div>
+          <p className="help-text">Used by the system to send profile PIN reset links. SMTP passwords are stored server-side only.</p>
+          <div className="form-grid">
+            <label>SMTP host<input value={smtpSettings.host} onChange={(e) => setSmtpSettings((c) => ({ ...c, host: e.target.value }))} placeholder="smtp.gmail.com" /></label>
+            <label>SMTP port<input type="number" value={smtpSettings.port} onChange={(e) => setSmtpSettings((c) => ({ ...c, port: Number(e.target.value || 587) }))} /></label>
+            <label>Username<input value={smtpSettings.username} onChange={(e) => setSmtpSettings((c) => ({ ...c, username: e.target.value }))} placeholder="SMTP username" /></label>
+            <label>Password<input type="password" value={smtpPasswordDraft} onChange={(e) => setSmtpPasswordDraft(e.target.value)} placeholder={smtpSettings.password_saved ? 'Saved server-side; enter to replace' : 'SMTP password'} autoComplete="new-password" /></label>
+            <label>From email<input type="email" value={smtpSettings.from_email} onChange={(e) => setSmtpSettings((c) => ({ ...c, from_email: e.target.value }))} placeholder="planner@example.com" /></label>
+            <label className="checkbox-line"><input type="checkbox" checked={smtpSettings.use_tls} onChange={(e) => setSmtpSettings((c) => ({ ...c, use_tls: e.target.checked }))} /> Use STARTTLS</label>
+          </div>
+          <div className="button-row">
+            <button className="primary-button" type="button" onClick={saveSmtpSettings}>Save SMTP settings</button>
+            {smtpStatus && <span className="help-text inline-help">{smtpStatus}</span>}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (section === 'general') {
+    const tzOptions = [
+      'Australia/Brisbane', 'Australia/Sydney', 'Australia/Melbourne', 'Australia/Adelaide',
+      'Australia/Perth', 'Australia/Darwin', 'Australia/Hobart',
+      'Pacific/Auckland', 'Asia/Singapore', 'Asia/Tokyo', 'Europe/London',
+      'Europe/Paris', 'America/New_York', 'America/Chicago', 'America/Denver',
+      'America/Los_Angeles', 'UTC',
+    ];
+    return (
+      <section className="settings-layout single-settings-page">
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">Appearance</p><h2>Theme</h2></div></div>
+          <div className="theme-toggle">
+            {(['light', 'dark', 'system'] as SettingsState['theme'][]).map((theme) => (
+              <button key={theme} className={settings.theme === theme ? 'selected' : ''} onClick={() => update({ theme })}>
+                {theme === 'light' && <Sun size={16} />}{theme === 'dark' && <Moon size={16} />}{theme === 'system' && <Settings size={16} />}{theme}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">Regional</p><h2>Timezone</h2></div></div>
+          <p className="help-text">Used for scheduling and date calculations.</p>
+          <select value={settings.timezone} onChange={e => update({ timezone: e.target.value })} style={{ maxWidth: '24rem' }}>
+            {tzOptions.map(tz => <option key={tz} value={tz}>{tz.replace('_', ' ')}</option>)}
+          </select>
+        </div>
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">Portability</p><h2>Backup & Restore</h2></div></div>
+          <p className="help-text">Download a zip of all app data (tasks, roster, profiles, budgets, settings), or restore from a previous backup.</p>
+          <div className="backup-actions-grid">
+            <div className="backup-action-card">
+              <Download size={22} />
+              <div>
+                <h3>Download full system backup</h3>
+                <p className="help-text">Exports all databases (tasks, subtasks, roster, budgets, receipts), profile settings, and server config. Treat this zip as sensitive.</p>
+                <button className="primary-button" type="button" onClick={downloadBackup}>Download full .zip backup</button>
+              </div>
+            </div>
+            <div className="backup-action-card danger-zone-card">
+              <Upload size={22} />
+              <div>
+                <h3>Restore from backup</h3>
+                <p className="help-text">Restoring overwrites matching local data/config files. The backend creates a safety backup before extraction.</p>
+                <input type="file" accept=".zip,application/zip" onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} />
+                {restoreFile && <p className="help-text">Selected: {restoreFile.name}</p>}
+                <button className="secondary-button danger-button" type="button" onClick={restoreBackup}>Restore selected .zip</button>
+              </div>
+            </div>
+          </div>
+          {backupStatus && <p className="help-text">{backupStatus}</p>}
+        </div>
+        <div className="card settings-card span-2">
+          <div className="card-header"><div><p className="eyebrow">Connectors</p><h2>SharePoint Library Settings</h2></div><span className="status-chip">Not connected</span></div>
+          <div className="form-grid">
+            <label>Tenant domain<input value={settings.sharePointTenant} onChange={(e) => update({ sharePointTenant: e.target.value })} placeholder="contoso.onmicrosoft.com" /></label>
+            <label>Tenant ID<input value={settings.sharePointTenantId} onChange={(e) => update({ sharePointTenantId: e.target.value })} placeholder="Azure Directory tenant ID" /></label>
+            <label>App / client ID<input value={settings.sharePointClientId} onChange={(e) => update({ sharePointClientId: e.target.value })} placeholder="Azure app registration client ID" /></label>
+            <label>Client secret<input type="password" value={clientSecretDraft} onChange={(e) => setClientSecretDraft(e.target.value)} placeholder="Stored server-side only" autoComplete="new-password" /></label>
+            <label>Client secret expiry date<input type="date" value={settings.sharePointClientSecretExpiry} onChange={(e) => update({ sharePointClientSecretExpiry: e.target.value })} /></label>
+            <label>Site URL<input value={settings.sharePointSite} onChange={(e) => update({ sharePointSite: e.target.value })} placeholder="https://tenant.sharepoint.com/sites/Invoice" /></label>
+            <label>Site ID<input value={settings.sharePointSiteId} onChange={(e) => update({ sharePointSiteId: e.target.value })} placeholder="Optional once discovered via Graph" /></label>
+            <label>Drive / library ID<input value={settings.sharePointDriveId} onChange={(e) => update({ sharePointDriveId: e.target.value })} placeholder="Optional once discovered via Graph" /></label>
+            <label>Library name<input value={settings.sharePointLibrary} onChange={(e) => update({ sharePointLibrary: e.target.value })} placeholder="Documents" /></label>
+            <label>Input folder<input value={settings.sharePointInputFolder} onChange={(e) => update({ sharePointInputFolder: e.target.value })} placeholder="Inbox" /></label>
+            <label>Processed output folder<input value={settings.sharePointOutputFolder} onChange={(e) => update({ sharePointOutputFolder: e.target.value })} placeholder="Processed/FY2025-2026" /></label>
+          </div>
+          {secretExpiryWarning && <p className={secretExpiryWarning.kind === 'danger' ? 'alert-text danger' : 'alert-text'}>{secretExpiryWarning.message}</p>}
+          <div className="button-row">
+            <button className="primary-button" type="button" onClick={saveSharePointSettings}>Save SharePoint settings</button>
+            <button className="secondary-button" type="button" onClick={testSharePointConnection}>Test SharePoint connection</button>
+            <span className="help-text inline-help">Client secret is stored server-side only; not persisted in browser localStorage.</span>
+          </div>
+          {saveStatus && <p className="help-text">{saveStatus}</p>}
+          {testStatus && <p className="help-text">{testStatus}</p>}
+        </div>
         <div className="card settings-card span-2">
           <div className="card-header"><div><p className="eyebrow">System email</p><h2>SMTP Email Settings</h2></div></div>
           <p className="help-text">Used by the system to send profile PIN reset links. SMTP passwords are stored server-side only.</p>
@@ -506,17 +614,6 @@ export function SettingsPage({
   // default: sharepoint
   return (
     <section className="settings-layout single-settings-page">
-      <div className="card settings-card">
-        <div className="card-header"><div><p className="eyebrow">Appearance</p><h2>Theme</h2></div></div>
-        <div className="theme-toggle">
-          {(['light', 'dark', 'system'] as SettingsState['theme'][]).map((theme) => (
-            <button key={theme} className={settings.theme === theme ? 'selected' : ''} onClick={() => update({ theme })}>
-              {theme === 'light' && <Sun size={16} />}{theme === 'dark' && <Moon size={16} />}{theme === 'system' && <Settings size={16} />}{theme}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <div className="card settings-card span-2">
         <div className="card-header"><div><p className="eyebrow">Connectors</p><h2>SharePoint Invoice site + Documents library</h2></div><span className="status-chip">Not connected</span></div>
         <div className="form-grid">

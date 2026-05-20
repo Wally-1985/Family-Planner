@@ -336,7 +336,7 @@ class Chore(BaseModel):
     id: str
     title: str
     description: str = ""
-    assigned_to: str = "everyone"
+    assigned_to: list[str] = Field(default_factory=lambda: ["everyone"])
     added_by: str = ""
     done: bool = False
     created_at: str = ""
@@ -345,7 +345,7 @@ class Chore(BaseModel):
 class ChoreCreate(BaseModel):
     title: str
     description: str = ""
-    assigned_to: str = "everyone"
+    assigned_to: list[str] = Field(default_factory=lambda: ["everyone"])
     added_by: str = ""
 
 
@@ -357,3 +357,138 @@ class ChoresResponse(BaseModel):
     status: Literal["ok", "failed"] = "ok"
     message: str = ""
     chores: list[Chore] = Field(default_factory=list)
+
+
+class Task(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    assigned_to: list[str] = Field(default_factory=lambda: ["everyone"])
+    added_by: str = ""
+    schedule: str = "once-off"
+    interval_count: int = 1
+    interval_unit: str = "week"
+    anchor_date: str = ""
+    days_of_month: list[int] = Field(default_factory=list)
+    months: list[int] = Field(default_factory=list)
+    due_dates: list[str] = Field(default_factory=list)
+    due_date: str = ""
+    end_date: str = ""
+    rule_note: str = ""
+    is_template: bool = False
+    template_id: str = ""
+    done: bool = False
+    done_date: str = ""
+    created_at: str = ""
+
+
+
+class SubTask(BaseModel):
+    id: str
+    task_id: str
+    title: str
+    done: bool = False
+    sort_order: int = 0
+    assigned_to: list[str] = Field(default_factory=lambda: ["everyone"])
+    created_at: str = ""
+
+
+class SubTaskCreate(BaseModel):
+    title: str
+    assigned_to: list[str] = Field(default_factory=lambda: ["everyone"])
+
+
+class SubTaskUpdate(BaseModel):
+    title: str | None = None
+    done: bool | None = None
+    sort_order: int | None = None
+    assigned_to: list[str] | None = None
+
+
+class SubTasksResponse(BaseModel):
+    status: Literal["ok", "failed"] = "ok"
+    message: str = ""
+    subtasks: list[SubTask] = Field(default_factory=list)
+
+
+class TaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    assigned_to: list[str] = Field(default_factory=lambda: ["everyone"])
+    added_by: str = ""
+    schedule: str = "once-off"
+    interval_count: int = 1
+    interval_unit: str = "week"
+    anchor_date: str = ""
+    days_of_month: list[int] = Field(default_factory=list)
+    months: list[int] = Field(default_factory=list)
+    due_dates: list[str] = Field(default_factory=list)
+    due_date: str = ""
+    end_date: str = ""
+    rule_note: str = ""
+
+
+class TaskDoneUpdate(BaseModel):
+    done: bool
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    assigned_to: list[str] | None = None
+    schedule: str | None = None
+    interval_count: int | None = None
+    interval_unit: str | None = None
+    anchor_date: str | None = None
+    days_of_month: list[int] | None = None
+    months: list[int] | None = None
+    due_dates: list[str] | None = None
+    due_date: str | None = None
+    end_date: str | None = None
+    rule_note: str | None = None
+
+
+class TasksResponse(BaseModel):
+    status: Literal["ok", "failed"] = "ok"
+    message: str = ""
+    tasks: list[Task] = Field(default_factory=list)
+
+
+class RosterItem(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    profile_ids: list[str] = Field(default_factory=list)
+    start_date: str = ""
+    schedule_type: str = "daily"
+    interval: int = 1
+    weekdays: list[int] = Field(default_factory=list)
+    sort_order: int = 0
+    created_at: str = ""
+
+
+class RosterItemCreate(BaseModel):
+    name: str
+    description: str = ""
+    profile_ids: list[str] = Field(default_factory=list)
+    start_date: str = ""
+    schedule_type: str = "daily"
+    interval: int = 1
+    weekdays: list[int] = Field(default_factory=list)
+
+
+class RosterItemUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    profile_ids: list[str] | None = None
+    start_date: str | None = None
+    schedule_type: str | None = None
+    interval: int | None = None
+    weekdays: list[int] | None = None
+    sort_order: int | None = None
+
+
+class RosterResponse(BaseModel):
+    status: Literal["ok", "failed"] = "ok"
+    message: str = ""
+    items: list[RosterItem] = Field(default_factory=list)
