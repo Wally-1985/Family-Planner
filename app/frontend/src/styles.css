@@ -261,6 +261,7 @@ tfoot td { font-weight: 800; background: color-mix(in srgb, var(--accent) 8%, tr
 .metric-card p, .metric-card span { color: var(--muted); }
 .metric-card strong { font-size: 36px; letter-spacing: -0.05em; }
 .card-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.card-header-actions { display: flex; align-items: center; gap: 8px; }
 .chart-card { min-height: 340px; }
 .action-card { grid-column: span 3; display: flex; align-items: center; gap: 16px; color: var(--text); text-align: left; }
 .action-card p { color: var(--muted); margin-top: 5px; }

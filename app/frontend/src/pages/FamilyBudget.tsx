@@ -364,6 +364,39 @@ export function buildBudgetProjectionForRange(items: BudgetItem[], rangeStart: D
   }).filter((week) => week.end >= rangeStart && week.start <= safeRangeEnd);
 }
 
+
+export function exportExpenseCsv(items: BudgetItem[]): void {
+  const expenses = items.filter((i) => i.kind === 'expense');
+  // 52 weeks of the current calendar year starting from Jan 1
+  const year = new Date().getFullYear();
+  const yearStart = new Date(year, 0, 1);
+  const weeks: Array<{ start: Date; end: Date; label: string }> = [];
+  for (let w = 0; w < 52; w++) {
+    const start = new Date(yearStart.getTime() + w * 7 * 86_400_000);
+    const end = new Date(start.getTime() + 6 * 86_400_000);
+    const label = `W${String(w + 1).padStart(2, '0')} ${start.toLocaleDateString('en-AU', { day: '2-digit', month: 'short' })}`;
+    weeks.push({ start, end, label });
+  }
+  const headers = ['Name', 'Category', 'Supplier', ...weeks.map((w) => w.label)];
+  const rows = expenses.map((item) => {
+    const weeklyCosts = weeks.map(({ start, end }) => {
+      const count = occurrenceCountInWeek(item, start, end);
+      return count > 0 ? (item.amount * count).toFixed(2) : '';
+    });
+    return [item.name, item.category || '', item.supplier || '', ...weeklyCosts];
+  });
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `expense-schedule-${year}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function budgetRuleLabel(item: BudgetItem): string {
   if (item.note) return item.note;
   const endLabel = item.endDate ? ` until ${formatBudgetDateText(item.endDate)}` : '';
@@ -893,7 +926,7 @@ export function FamilyBudget() {
           <BudgetScheduleCard title="Income schedule" items={visibleItems.filter((i) => i.kind === 'income')} categories={expenseCategories} onAdd={() => openAddBudgetItem('income')} onEdit={openEditBudgetItem} onDelete={deleteBudgetItem} onView={setSelectedBudgetItem} />
           <SavingsAccountsCard accounts={savingsAccounts} status={savingsSaveStatus} onAdd={() => setEditingSavingsAccount({ id: `savings-${Date.now()}`, name: '', balance: 0, note: '' })} onEdit={(a) => setEditingSavingsAccount({ ...a })} onDelete={deleteSavingsAccount} />
         </div>
-        <BudgetScheduleCard title="Expense schedule" items={visibleItems.filter((i) => i.kind === 'expense')} categories={expenseCategories} onAdd={() => openAddBudgetItem('expense')} onEdit={openEditBudgetItem} onDelete={deleteBudgetItem} onView={setSelectedBudgetItem} matchedHeight={budgetLeftColumnHeight} wide />
+        <BudgetScheduleCard title="Expense schedule" items={visibleItems.filter((i) => i.kind === 'expense')} categories={expenseCategories} onAdd={() => openAddBudgetItem('expense')} onExport={() => exportExpenseCsv(items)} onEdit={openEditBudgetItem} onDelete={deleteBudgetItem} onView={setSelectedBudgetItem} matchedHeight={budgetLeftColumnHeight} wide />
       </div>
 
       <div className="content-grid">
@@ -938,7 +971,7 @@ export function FamilyBudget() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
-function BudgetScheduleCard({ title, items, wide, categories, onAdd, onEdit, onDelete, onView, matchedHeight }: { title: string; items: BudgetItem[]; wide?: boolean; categories: string[]; onAdd: () => void; onEdit: (item: BudgetItem) => void; onDelete: (id: string) => void; onView: (item: BudgetItem) => void; matchedHeight?: number | null }) {
+function BudgetScheduleCard({ title, items, wide, categories, onAdd, onExport, onEdit, onDelete, onView, matchedHeight }: { title: string; items: BudgetItem[]; wide?: boolean; categories: string[]; onAdd: () => void; onExport?: () => void; onEdit: (item: BudgetItem) => void; onDelete: (id: string) => void; onView: (item: BudgetItem) => void; matchedHeight?: number | null }) {
   const isIncome = !wide;
   const [expenseColumnWidths, setExpenseColumnWidths] = useState([220, 130, 120, 95, 105, 220, 145]);
   const [expenseSortKey, setExpenseSortKey] = useState<'name' | 'supplier' | 'category' | 'amount' | 'schedule' | 'rule'>('name');
@@ -958,7 +991,7 @@ function BudgetScheduleCard({ title, items, wide, categories, onAdd, onEdit, onD
   const sortedExpenseItems = useMemo(() => isIncome ? items : [...items].sort((l, r) => compareBudgetItems(l, r, expenseSortKey, expenseSortDirection)), [expenseSortDirection, expenseSortKey, isIncome, items]);
   return (
     <div className={wide ? 'card table-card expense-schedule-card' : 'card table-card'} style={wide && matchedHeight ? { height: matchedHeight } : undefined}>
-      <div className="card-header"><div><p className="eyebrow">Known items</p><h2>{title}</h2></div><button className="primary-button" type="button" onClick={onAdd}>Add item</button></div>
+      <div className="card-header"><div><p className="eyebrow">Known items</p><h2>{title}</h2></div><div className="card-header-actions">{onExport && <button className="secondary-button" type="button" onClick={onExport}>Export CSV</button>}<button className="primary-button" type="button" onClick={onAdd}>Add item</button></div></div>
       {isIncome ? (
         <div className="budget-card-list income-card-list">
           {items.map((item) => (
