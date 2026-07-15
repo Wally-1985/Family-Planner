@@ -923,10 +923,10 @@ export function FamilyBudget() {
 
       <div className="budget-schedules-grid">
         <div className="budget-left-column" ref={budgetLeftColumnRef}>
-          <BudgetScheduleCard title="Income schedule" items={visibleItems.filter((i) => i.kind === 'income')} categories={expenseCategories} onAdd={() => openAddBudgetItem('income')} onEdit={openEditBudgetItem} onDelete={deleteBudgetItem} onView={setSelectedBudgetItem} />
+          <BudgetScheduleCard title="Income schedule" items={items.filter((i) => i.kind === 'income')} categories={expenseCategories} onAdd={() => openAddBudgetItem('income')} onEdit={openEditBudgetItem} onDelete={deleteBudgetItem} onView={setSelectedBudgetItem} />
           <SavingsAccountsCard accounts={savingsAccounts} status={savingsSaveStatus} onAdd={() => setEditingSavingsAccount({ id: `savings-${Date.now()}`, name: '', balance: 0, note: '' })} onEdit={(a) => setEditingSavingsAccount({ ...a })} onDelete={deleteSavingsAccount} />
         </div>
-        <BudgetScheduleCard title="Expense schedule" items={visibleItems.filter((i) => i.kind === 'expense')} categories={expenseCategories} onAdd={() => openAddBudgetItem('expense')} onExport={() => exportExpenseCsv(items)} onEdit={openEditBudgetItem} onDelete={deleteBudgetItem} onView={setSelectedBudgetItem} matchedHeight={budgetLeftColumnHeight} wide />
+        <BudgetScheduleCard title="Expense schedule" items={items.filter((i) => i.kind === 'expense')} categories={expenseCategories} onAdd={() => openAddBudgetItem('expense')} onExport={() => exportExpenseCsv(items)} onEdit={openEditBudgetItem} onDelete={deleteBudgetItem} onView={setSelectedBudgetItem} matchedHeight={budgetLeftColumnHeight} wide />
       </div>
 
       <div className="content-grid">
